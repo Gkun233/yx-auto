@@ -46,70 +46,58 @@ function getConfigValue(key, defaultValue) {
     return defaultValue || '';
 }
 
-// 获取动态IP列表（支持IPv4/IPv6和运营商筛选）
-async function fetchDynamicIPs(ipv4Enabled = true, ipv6Enabled = true, ispMobile = true, ispUnicom = true, ispTelecom = true) {
-    const v4Url = "https://www.wetest.vip/page/cloudflare/address_v4.html";
-    const v6Url = "https://www.wetest.vip/page/cloudflare/address_v6.html";
-    let results = [];
-
-    try {
-        const fetchPromises = [];
-        if (ipv4Enabled) {
-            fetchPromises.push(fetchAndParseWetest(v4Url));
-        } else {
-            fetchPromises.push(Promise.resolve([]));
-        }
-        if (ipv6Enabled) {
-            fetchPromises.push(fetchAndParseWetest(v6Url));
-        } else {
-            fetchPromises.push(Promise.resolve([]));
-        }
-
-        const [ipv4List, ipv6List] = await Promise.all(fetchPromises);
-        results = [...ipv4List, ...ipv6List];
-        
-        // 按运营商筛选
-        if (results.length > 0) {
-            results = results.filter(item => {
-                const isp = item.isp || '';
-                if (isp.includes('移动') && !ispMobile) return false;
-                if (isp.includes('联通') && !ispUnicom) return false;
-                if (isp.includes('电信') && !ispTelecom) return false;
-                return true;
-            });
-        }
-        
-        return results.length > 0 ? results : [];
-    } catch (e) {
-        return [];
-    }
+// 计算 MD5（Workers 运行时支持，非 WebCrypto 标准算法）
+async function md5Hex(text) {
+    const buf = await crypto.subtle.digest('MD5', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// 解析wetest页面
-async function fetchAndParseWetest(url) {
-    try {
-        const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        if (!response.ok) return [];
-        const html = await response.text();
-        const results = [];
-        const rowRegex = /<tr[\s\S]*?<\/tr>/g;
-        const cellRegex = /<td data-label="线路名称">(.+?)<\/td>[\s\S]*?<td data-label="优选地址">([\d.:a-fA-F]+)<\/td>[\s\S]*?<td data-label="数据中心">(.+?)<\/td>/;
+// 获取动态IP列表（支持IPv4/IPv6和运营商筛选）
+async function fetchDynamicIPs(ipv4Enabled = true, ipv6Enabled = true, ispMobile = true, ispUnicom = true, ispTelecom = true) {
+    const ispNames = {
+        ctcc: '电信',
+        cucc: '联通',
+        cmcc: '移动',
+        bgp: '多线',
+        ipv6: 'IPv6'
+    };
 
-        let match;
-        while ((match = rowRegex.exec(html)) !== null) {
-            const rowHtml = match[0];
-            const cellMatch = rowHtml.match(cellRegex);
-            if (cellMatch && cellMatch[1] && cellMatch[2]) {
-                const colo = cellMatch[3] ? cellMatch[3].trim().replace(/<.*?>/g, '') : '';
-                results.push({
-                    isp: cellMatch[1].trim().replace(/<.*?>/g, ''),
-                    ip: cellMatch[2].trim(),
-                    colo: colo
-                });
+    try {
+        const time = String(Date.now());
+        const inner = await md5Hex(atob('RGRsVHh0TjBzVU91'));
+        const key = await md5Hex(inner + atob('NzBjbG91ZGZsYXJlYXBpa2V5') + time);
+        const response = await fetch(`${atob('aHR0cHM6Ly9hcGkudW91aW4uY29tL2luZGV4LnBocC9pbmRleC9DbG91ZGZsYXJl')}?key=${key}&time=${time}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        if (!response.ok) return [];
+        const data = await response.json();
+        const groups = data && data.data;
+        if (!groups) return [];
+
+        const results = [];
+        for (const groupKey of Object.keys(ispNames)) {
+            const isIPv6 = groupKey === 'ipv6';
+            if (isIPv6 && !ipv6Enabled) continue;
+            if (!isIPv6 && !ipv4Enabled) continue;
+
+            const isp = ispNames[groupKey];
+            if (isp === '移动' && !ispMobile) continue;
+            if (isp === '联通' && !ispUnicom) continue;
+            if (isp === '电信' && !ispTelecom) continue;
+
+            const group = groups[groupKey];
+            const info = group && Array.isArray(group.info) ? group.info : [];
+            let index = 0;
+            for (const entry of info) {
+                const ip = String(entry && entry.ip || '').trim();
+                if (!ip) continue;
+                index++;
+                // 接口不返回机房信息，用序号占位避免同线路节点重名
+                results.push({ isp: isp, ip: ip, colo: String(index).padStart(2, '0') });
             }
         }
         return results;
-    } catch (error) {
+    } catch (e) {
         return [];
     }
 }
