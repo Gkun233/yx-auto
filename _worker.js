@@ -1,7 +1,7 @@
 // Cloudflare Worker - 简化版优选工具
 // 仅保留优选域名、优选IP、GitHub、上报和节点生成功能
 // 修复记录：已修正 VMess 协议下节点名称包含中文导致 Error 1101 的问题
-// 2026-09-01 修复：协议选择逻辑，严格按参数判断；ECH DNS 示例值更新
+// 2026-09-01 修复：协议选择逻辑严格按参数判断；ECH DNS 示例值更新；运营商顺序调换
 
 // 默认配置
 let customPreferredIPs = [];
@@ -1309,23 +1309,25 @@ function generateHomePage(scuValue) {
                 </div>
             </div>
             
+            <!-- ========== 运营商选择（顺序已调换：电信、联通、移动） ========== -->
             <div class="form-group">
                 <label>运营商选择</label>
                 <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px;">
                     <label class="checkbox-label">
-                        <input type="checkbox" id="ispMobile" checked>
-                        <span>移动</span>
+                        <input type="checkbox" id="ispTelecom" checked>
+                        <span>电信</span>
                     </label>
                     <label class="checkbox-label">
                         <input type="checkbox" id="ispUnicom" checked>
                         <span>联通</span>
                     </label>
                     <label class="checkbox-label">
-                        <input type="checkbox" id="ispTelecom" checked>
-                        <span>电信</span>
+                        <input type="checkbox" id="ispMobile" checked>
+                        <span>移动</span>
                     </label>
                 </div>
             </div>
+            <!-- ========== 运营商选择结束 ========== -->
             
             <div class="list-item" onclick="toggleSwitch('switchTLS')" style="margin-top: 8px;">
                 <div>
