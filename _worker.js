@@ -1343,7 +1343,7 @@ function generateHomePage(scuValue) {
             </div>
             <div class="form-group" id="echOptionsGroup" style="margin-top: 12px; display: none;">
                 <label>ECH 自定义 DNS（可选）</label>
-                <input type="text" id="customDNS" placeholder="例如: https://dns.joeyblog.eu.org/joeyblog" style="font-size: 14px;">
+                <input type="text" id="customDNS" placeholder="例如: https://dns.alidns.com/dns-query" style="font-size: 14px;">
                 <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">用于 ECH 配置查询的 DoH 地址</small>
                 <label style="margin-top: 12px; display: block;">ECH 域名（可选）</label>
                 <input type="text" id="customECHDomain" placeholder="例如: cloudflare-ech.com" style="font-size: 14px;">
