@@ -24,8 +24,7 @@ GitHub: https://github.com/Gkun233/yx-auto
 
 打开你的Worker地址，会看到一个界面：
 
-1.一键解析VLESS/Trojan/VMess
-
+1. 一键解析VLESS/Trojan/VMess
 2. 点按钮生成订阅链接
 
 就这么简单。
