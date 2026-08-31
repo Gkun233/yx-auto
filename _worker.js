@@ -306,7 +306,6 @@ function generateLinksFromSource(list, user, workerDomain, disableNonTLS = false
             if (transportType === 'xhttp') {
                 baseParams.mode = xhttpMode || 'auto';
                 if (xhttpExtra) {
-                    // 如果 extra 是对象字符串，确保它是有效的 JSON 或直接使用原字符串
                     baseParams.extra = xhttpExtra;
                 }
             }
@@ -1258,7 +1257,7 @@ function generateHomePage(scuValue) {
                     <input type="text" id="parseInput" placeholder="粘贴 vless:// vmess:// trojan:// 链接" style="flex: 1;">
                     <button type="button" class="client-btn" onclick="parseLink()" style="white-space: nowrap;">解析</button>
                 </div>
-                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自动提取 UUID/Password、域名、WebSocket 路径，并切换协议和传输</small>
+                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自动提取 UUID/Password、域名、Path 路径，并切换协议和传输</small>
             </div>
             <!-- ========== 解析结束 ========== -->
             
@@ -1272,10 +1271,11 @@ function generateHomePage(scuValue) {
                 <input type="text" id="uuid" placeholder="请输入UUID或Password">
             </div>
             
+            <!-- 修改：标签和提示改为 Path 路径 -->
             <div class="form-group">
-                <label>WebSocket路径（可选）</label>
+                <label>Path路径（可选）</label>
                 <input type="text" id="customPath" placeholder="留空则使用默认路径 /" value="/">
-                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自定义WebSocket路径，例如：/v2ray 或 /</small>
+                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自定义 Path 路径，例如：/v2ray 或 /</small>
             </div>
             
             <!-- ========== 传输方式 ========== -->
