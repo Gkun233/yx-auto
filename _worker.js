@@ -1199,6 +1199,17 @@ function generateHomePage(scuValue) {
         </div>
         
         <div class="card">
+            <!-- ========== 节点链接自动解析（移至最顶部） ========== -->
+            <div class="form-group">
+                <label>粘贴节点链接自动解析</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="parseInput" placeholder="粘贴 vless:// vmess:// trojan:// 链接" style="flex: 1;">
+                    <button type="button" class="client-btn" onclick="parseLink()" style="white-space: nowrap;">解析</button>
+                </div>
+                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自动提取 UUID/Password、域名和 WebSocket 路径</small>
+            </div>
+            <!-- ========== 解析区域结束 ========== -->
+            
             <div class="form-group">
                 <label>域名</label>
                 <input type="text" id="domain" placeholder="请输入您的域名">
@@ -1342,8 +1353,7 @@ function generateHomePage(scuValue) {
         <div class="footer">
             <p>简化版优选工具 • 仅用于节点生成</p>
             <div style="margin-top: 20px; display: flex; justify-content: center; gap: 24px; flex-wrap: wrap;">
-                <a href="https://github.com/byJoey/yx-auto" target="_blank" style="color: #007aff; text-decoration: none; font-size: 15px; font-weight: 500;">GitHub 项目</a>
-                <a href="https://www.youtube.com/@joeyblog" target="_blank" style="color: #007aff; text-decoration: none; font-size: 15px; font-weight: 500;">YouTube @joeyblog</a>
+                <a href="https://github.com/Gkun233/yx-auto" target="_blank" style="color: #007aff; text-decoration: none; font-size: 15px; font-weight: 500;">GitHub 项目</a>
             </div>
         </div>
     </div>
@@ -1375,6 +1385,50 @@ function generateHomePage(scuValue) {
             }
         }
         
+        // ========== 解析节点链接 ==========
+        function parseLink() {
+            const input = document.getElementById('parseInput').value.trim();
+            if (!input) {
+                alert('请粘贴节点链接');
+                return;
+            }
+            let host = '', uuid = '', path = '/';
+            try {
+                if (input.startsWith('vless://')) {
+                    const url = new URL(input);
+                    uuid = url.username;
+                    host = url.hostname;
+                    path = url.searchParams.get('path') || '/';
+                } else if (input.startsWith('trojan://')) {
+                    const url = new URL(input);
+                    uuid = url.username;
+                    host = url.hostname;
+                    path = url.searchParams.get('path') || '/';
+                } else if (input.startsWith('vmess://')) {
+                    const base64 = input.substring(8);
+                    const jsonStr = atob(base64);
+                    const config = JSON.parse(jsonStr);
+                    uuid = config.id;
+                    host = config.add;
+                    path = config.path || '/';
+                    // 若 IPv6 带方括号，去除
+                    if (host && host.startsWith('[') && host.endsWith(']')) {
+                        host = host.substring(1, host.length - 1);
+                    }
+                } else {
+                    alert('不支持的链接格式，仅支持 vless:// vmess:// trojan://');
+                    return;
+                }
+                // 填充表单
+                if (host) document.getElementById('domain').value = host;
+                if (uuid) document.getElementById('uuid').value = uuid;
+                if (path) document.getElementById('customPath').value = path;
+                alert('解析成功！已自动填入域名、UUID/Password 和 WebSocket 路径。');
+            } catch (e) {
+                alert('解析失败：' + e.message);
+            }
+        }
+        // ========== 解析结束 ==========
         
         // 订阅转换地址（从服务器注入）
         const SUB_CONVERTER_URL = "${ scu }";
