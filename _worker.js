@@ -17,9 +17,9 @@ let enableECH = false;
 let customDNS = 'https://dns.alidns.com/dns-query';
 let customECHDomain = 'cloudflare-ech.com';
 
-// 默认优选域名列表
+// 默认优选域名列表（已去除冗余的 name 字段）
 const directDomains = [
-    { name: "cloudflare.182682.xyz", domain: "cloudflare.182682.xyz" },
+    { domain: "cloudflare.182682.xyz" },
     { domain: "freeyx.cloudflare88.eu.org" },
     { domain: "bestcf.top" },
     { domain: "cdn.2020111.xyz" },
@@ -1343,7 +1343,7 @@ function generateHomePage(scuValue) {
             </div>
             <div class="form-group" id="echOptionsGroup" style="margin-top: 12px; display: none;">
                 <label>ECH 自定义 DNS（可选）</label>
-                <input type="text" id="customDNS" placeholder="例如: https://dns.alidns.com/dns-query" style="font-size: 14px;">
+                <input type="text" id="customDNS" placeholder="例如: https://dns.joeyblog.eu.org/joeyblog" style="font-size: 14px;">
                 <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">用于 ECH 配置查询的 DoH 地址</small>
                 <label style="margin-top: 12px; display: block;">ECH 域名（可选）</label>
                 <input type="text" id="customECHDomain" placeholder="例如: cloudflare-ech.com" style="font-size: 14px;">
@@ -1385,7 +1385,7 @@ function generateHomePage(scuValue) {
             }
         }
         
-        // ========== 解析节点链接 ==========
+        // ========== 解析节点链接（修复版） ==========
         function parseLink() {
             const input = document.getElementById('parseInput').value.trim();
             if (!input) {
@@ -1394,22 +1394,18 @@ function generateHomePage(scuValue) {
             }
             let host = '', uuid = '', path = '/';
             try {
-                if (input.startsWith('vless://')) {
+                if (input.startsWith('vless://') || input.startsWith('trojan://')) {
                     const url = new URL(input);
                     uuid = url.username;
-                    host = url.hostname;
-                    path = url.searchParams.get('path') || '/';
-                } else if (input.startsWith('trojan://')) {
-                    const url = new URL(input);
-                    uuid = url.username;
-                    host = url.hostname;
+                    // 优先取 sni，再取 host，最后回退到 hostname（IP）
+                    host = url.searchParams.get('sni') || url.searchParams.get('host') || url.hostname;
                     path = url.searchParams.get('path') || '/';
                 } else if (input.startsWith('vmess://')) {
                     const base64 = input.substring(8);
                     const jsonStr = atob(base64);
                     const config = JSON.parse(jsonStr);
                     uuid = config.id;
-                    host = config.add;
+                    host = config.sni || config.host || config.add;
                     path = config.path || '/';
                     // 若 IPv6 带方括号，去除
                     if (host && host.startsWith('[') && host.endsWith(']')) {
