@@ -1,7 +1,7 @@
 // Cloudflare Worker - 简化版优选工具
-// 仅保留优选域名、优选IP、GitHub、上报和节点生成功能
-// 修复记录：已修正 VMess 协议下节点名称包含中文导致 Error 1101 的问题
-// 2026-09-01 修复：协议选择逻辑严格按参数判断；ECH DNS 示例值更新；运营商顺序调换；解析时自动切换协议；仅TLS默认开启
+// 支持 VLESS/Trojan/VMess 协议，WS/XHTTP 传输，ECH，IP/运营商筛选
+// 修复记录：已修正 VMess 中文名问题，协议参数严格判断，解析自动切换协议和传输
+// XHTTP 模式: auto, packet-up, stream-up, stream-one
 
 // 默认配置
 let customPreferredIPs = [];
@@ -244,8 +244,8 @@ async function fetchAndParseNewIPs(piu) {
     }
 }
 
-// 生成VLESS链接
-function generateLinksFromSource(list, user, workerDomain, disableNonTLS = false, customPath = '/', echConfig = null) {
+// 生成VLESS链接（支持传输类型：ws 或 xhttp）
+function generateLinksFromSource(list, user, workerDomain, disableNonTLS = false, customPath = '/', echConfig = null, transport = 'ws', xhttpMode = 'auto') {
     const CF_HTTP_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
     const CF_HTTPS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
     const defaultHttpsPorts = [443];
@@ -282,39 +282,39 @@ function generateLinksFromSource(list, user, workerDomain, disableNonTLS = false
         }
 
         portsToGenerate.forEach(({ port, tls }) => {
+            const transportType = transport === 'xhttp' ? 'xhttp' : 'ws';
+            const nodeType = transportType === 'xhttp' ? 'XHTTP' : 'WS';
+            const nodeSuffix = tls ? `-${nodeType}-TLS` : `-${nodeType}`;
+            const nodeName = `${nodeNameBase}-${port}${nodeSuffix}`;
+            
+            const baseParams = {
+                encryption: 'none',
+                type: transportType,
+                host: workerDomain,
+                path: wsPath
+            };
             if (tls) {
-                const wsNodeName = `${nodeNameBase}-${port}-WS-TLS`;
-                const wsParams = new URLSearchParams({ 
-                    encryption: 'none', 
-                    security: 'tls', 
-                    sni: workerDomain, 
-                    fp: 'chrome', 
-                    type: 'ws', 
-                    host: workerDomain, 
-                    path: wsPath
-                });
-                if (echConfig) {
-                    wsParams.set('alpn', 'h3,h2,http/1.1');
-                    wsParams.set('ech', echConfig);
-                }
-                links.push(`${proto}://${user}@${safeIP}:${port}?${wsParams.toString()}#${encodeURIComponent(wsNodeName)}`);
+                baseParams.security = 'tls';
+                baseParams.sni = workerDomain;
+                baseParams.fp = 'chrome';
             } else {
-                const wsNodeName = `${nodeNameBase}-${port}-WS`;
-                const wsParams = new URLSearchParams({
-                    encryption: 'none',
-                    security: 'none',
-                    type: 'ws',
-                    host: workerDomain,
-                    path: wsPath
-                });
-                links.push(`${proto}://${user}@${safeIP}:${port}?${wsParams.toString()}#${encodeURIComponent(wsNodeName)}`);
+                baseParams.security = 'none';
             }
+            if (echConfig) {
+                baseParams.alpn = 'h3,h2,http/1.1';
+                baseParams.ech = echConfig;
+            }
+            if (transportType === 'xhttp') {
+                baseParams.mode = xhttpMode || 'auto';
+            }
+            const params = new URLSearchParams(baseParams);
+            links.push(`${proto}://${user}@${safeIP}:${port}?${params.toString()}#${encodeURIComponent(nodeName)}`);
         });
     });
     return links;
 }
 
-// 生成Trojan链接
+// 生成Trojan链接（仅WS）
 async function generateTrojanLinksFromSource(list, user, workerDomain, disableNonTLS = false, customPath = '/', echConfig = null) {
     const CF_HTTP_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
     const CF_HTTPS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
@@ -384,7 +384,7 @@ async function generateTrojanLinksFromSource(list, user, workerDomain, disableNo
     return links;
 }
 
-// 生成VMess链接 (已修复中文名导致1101报错的问题)
+// 生成VMess链接 (已修复中文名导致1101报错的问题) - 仅WS
 function generateVMessLinksFromSource(list, user, workerDomain, disableNonTLS = false, customPath = '/', echConfig = null) {
     const CF_HTTP_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
     const CF_HTTPS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
@@ -455,30 +455,32 @@ function generateVMessLinksFromSource(list, user, workerDomain, disableNonTLS = 
     return links;
 }
 
-// 从GitHub IP生成链接（VLESS）
-function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', echConfig = null) {
+// 从GitHub IP生成链接（VLESS，支持传输类型）
+function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', echConfig = null, transport = 'ws', xhttpMode = 'auto') {
     const CF_HTTP_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
     const CF_HTTPS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
     const links = [];
     const wsPath = customPath || '/';
     const proto = 'vless';
     const echSuffix = echConfig ? `&alpn=h3%2Ch2%2Chttp%2F1.1&ech=${encodeURIComponent(echConfig)}` : '';
+    const transportType = transport === 'xhttp' ? 'xhttp' : 'ws';
+    const modeParam = transportType === 'xhttp' ? `&mode=${xhttpMode || 'auto'}` : '';
     
     list.forEach(item => {
         const nodeName = item.name.replace(/\s/g, '_');
         const port = item.port;
         
         if (CF_HTTPS_PORTS.includes(port)) {
-            const wsNodeName = `${nodeName}-${port}-WS-TLS`;
-            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=tls&sni=${workerDomain}&fp=chrome&type=ws&host=${workerDomain}&path=${wsPath}${echSuffix}#${encodeURIComponent(wsNodeName)}`;
+            const wsNodeName = `${nodeName}-${port}-${transportType.toUpperCase()}-TLS`;
+            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=tls&sni=${workerDomain}&fp=chrome&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}${echSuffix}#${encodeURIComponent(wsNodeName)}`;
             links.push(link);
         } else if (CF_HTTP_PORTS.includes(port)) {
-            const wsNodeName = `${nodeName}-${port}-WS`;
-            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=none&type=ws&host=${workerDomain}&path=${wsPath}#${encodeURIComponent(wsNodeName)}`;
+            const wsNodeName = `${nodeName}-${port}-${transportType.toUpperCase()}`;
+            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=none&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}#${encodeURIComponent(wsNodeName)}`;
             links.push(link);
         } else {
-            const wsNodeName = `${nodeName}-${port}-WS-TLS`;
-            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=tls&sni=${workerDomain}&fp=chrome&type=ws&host=${workerDomain}&path=${wsPath}${echSuffix}#${encodeURIComponent(wsNodeName)}`;
+            const wsNodeName = `${nodeName}-${port}-${transportType.toUpperCase()}-TLS`;
+            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=tls&sni=${workerDomain}&fp=chrome&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}${echSuffix}#${encodeURIComponent(wsNodeName)}`;
             links.push(link);
         }
     });
@@ -486,7 +488,7 @@ function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', ech
 }
 
 // 生成订阅内容
-async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig = null) {
+async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig = null, transport = 'ws', xhttpMode = 'auto') {
     const url = new URL(request.url);
     const finalLinks = [];
     const workerDomain = url.hostname;  // workerDomain始终是请求的hostname
@@ -497,15 +499,16 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
     async function addNodesFromList(list) {
         // 确保至少有一个协议被启用
         const hasProtocol = evEnabled || etEnabled || vmEnabled;
-        const useVL = hasProtocol ? evEnabled : true;  // 如果没有选择任何协议，默认使用VLESS（但实际上有参数控制）
+        const useVL = hasProtocol ? evEnabled : true;  // 如果没有选择任何协议，默认使用VLESS
         
         if (useVL) {
-            finalLinks.push(...generateLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig));
+            // 如果传输是 xhttp，只生成 VLESS
+            finalLinks.push(...generateLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig, transport, xhttpMode));
         }
-        if (etEnabled) {
+        if (etEnabled && transport !== 'xhttp') { // XHTTP 下不生成 Trojan
             finalLinks.push(...await generateTrojanLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig));
         }
-        if (vmEnabled) {
+        if (vmEnabled && transport !== 'xhttp') { // XHTTP 下不生成 VMess
             finalLinks.push(...generateVMessLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig));
         }
     }
@@ -564,7 +567,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                         const useVL = hasProtocol ? evEnabled : true;
                         
                         if (useVL) {
-                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig));
+                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig, transport, xhttpMode));
                         }
                     }
                 }
@@ -613,7 +616,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                         const useVL = hasProtocol ? evEnabled : true;
                         
                         if (useVL) {
-                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig));
+                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig, transport, xhttpMode));
                         }
                     }
                 }
@@ -625,7 +628,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                     const useVL = hasProtocol ? evEnabled : true;
                     
                     if (useVL) {
-                        finalLinks.push(...generateLinksFromNewIPs(newIPList, user, nodeDomain, wsPath, echConfig));
+                        finalLinks.push(...generateLinksFromNewIPs(newIPList, user, nodeDomain, wsPath, echConfig, transport, xhttpMode));
                     }
                 }
             }
@@ -693,6 +696,8 @@ function generateClashConfig(links) {
         const sni = link.match(/sni=([^&#]+)/)?.[1] || '';
         const echParam = link.match(/[?&]ech=([^&#]+)/)?.[1];
         const echDomain = echParam ? decodeURIComponent(echParam).split('+')[0] : '';
+        const type = link.match(/type=([^&#]+)/)?.[1] || 'ws';
+        const mode = link.match(/mode=([^&#]+)/)?.[1] || '';
         
         yaml += `  - name: ${name}\n`;
         yaml += `    type: vless\n`;
@@ -700,11 +705,18 @@ function generateClashConfig(links) {
         yaml += `    port: ${port}\n`;
         yaml += `    uuid: ${uuid}\n`;
         yaml += `    tls: ${tls}\n`;
-        yaml += `    network: ws\n`;
-        yaml += `    ws-opts:\n`;
-        yaml += `      path: ${path}\n`;
-        yaml += `      headers:\n`;
-        yaml += `        Host: ${host}\n`;
+        yaml += `    network: ${type}\n`;
+        if (type === 'xhttp') {
+            yaml += `    xhttp-opts:\n`;
+            yaml += `      mode: ${mode || 'auto'}\n`;
+            yaml += `      path: ${path}\n`;
+            yaml += `      host: ${host}\n`;
+        } else {
+            yaml += `    ws-opts:\n`;
+            yaml += `      path: ${path}\n`;
+            yaml += `      headers:\n`;
+            yaml += `        Host: ${host}\n`;
+        }
         if (sni) {
             yaml += `    servername: ${sni}\n`;
         }
@@ -733,7 +745,15 @@ function generateSurgeConfig(links) {
     let config = '[Proxy]\n';
     links.forEach(link => {
         const name = decodeURIComponent(link.split('#')[1] || '节点');
-        config += `${name} = vless, ${link.match(/@([^:]+):(\d+)/)?.[1] || ''}, ${link.match(/@[^:]+:(\d+)/)?.[1] || '443'}, username=${link.match(/vless:\/\/([^@]+)@/)?.[1] || ''}, tls=${link.includes('security=tls')}, ws=true, ws-path=${link.match(/path=([^&#]+)/)?.[1] || '/'}, ws-headers=Host:${link.match(/host=([^&#]+)/)?.[1] || ''}\n`;
+        const server = link.match(/@([^:]+):(\d+)/)?.[1] || '';
+        const port = link.match(/@[^:]+:(\d+)/)?.[1] || '443';
+        const username = link.match(/vless:\/\/([^@]+)@/)?.[1] || '';
+        const tls = link.includes('security=tls');
+        const path = link.match(/path=([^&#]+)/)?.[1] || '/';
+        const host = link.match(/host=([^&#]+)/)?.[1] || '';
+        const type = link.match(/type=([^&#]+)/)?.[1] || 'ws';
+        // Surge 不支持 xhttp，仅保留 ws 相关
+        config += `${name} = vless, ${server}, ${port}, username=${username}, tls=${tls}, ws=true, ws-path=${path}, ws-headers=Host:${host}\n`;
     });
     config += '\n[Proxy Group]\nPROXY = select, ' + links.map((_, i) => decodeURIComponent(links[i].split('#')[1] || `节点${i + 1}`)).join(', ') + '\n';
     return config;
@@ -932,6 +952,11 @@ function generateHomePage(scuValue) {
             transform: translateX(20px);
         }
         
+        .switch.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+        
         .btn {
             width: 100%;
             padding: 16px;
@@ -1055,6 +1080,11 @@ function generateHomePage(scuValue) {
             transform: scale(0.97);
             background: rgba(0, 122, 255, 0.2);
             border-color: rgba(0, 122, 255, 0.3);
+        }
+        
+        .client-btn:disabled {
+            opacity: 0.5;
+            pointer-events: none;
         }
         
         .checkbox-label {
@@ -1200,16 +1230,16 @@ function generateHomePage(scuValue) {
         </div>
         
         <div class="card">
-            <!-- ========== 节点链接自动解析（移至最顶部） ========== -->
+            <!-- ========== 节点链接自动解析 ========== -->
             <div class="form-group">
                 <label>粘贴节点链接自动解析</label>
                 <div style="display: flex; gap: 10px;">
                     <input type="text" id="parseInput" placeholder="粘贴 vless:// vmess:// trojan:// 链接" style="flex: 1;">
                     <button type="button" class="client-btn" onclick="parseLink()" style="white-space: nowrap;">解析</button>
                 </div>
-                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自动提取 UUID/Password、域名和 WebSocket 路径，并自动切换对应协议</small>
+                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自动提取 UUID/Password、域名、WebSocket 路径，并切换协议和传输</small>
             </div>
-            <!-- ========== 解析区域结束 ========== -->
+            <!-- ========== 解析结束 ========== -->
             
             <div class="form-group">
                 <label>域名</label>
@@ -1226,6 +1256,37 @@ function generateHomePage(scuValue) {
                 <input type="text" id="customPath" placeholder="留空则使用默认路径 /" value="/">
                 <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自定义WebSocket路径，例如：/v2ray 或 /</small>
             </div>
+            
+            <!-- ========== 传输方式 ========== -->
+            <div class="form-group">
+                <label>传输方式</label>
+                <div style="margin-top: 8px;">
+                    <div class="list-item" onclick="toggleSwitch('switchWS')">
+                        <div>
+                            <div class="list-item-label">WebSocket (WS)</div>
+                        </div>
+                        <div class="switch active" id="switchWS"></div>
+                    </div>
+                    <div class="list-item" onclick="toggleSwitch('switchXHTTP')">
+                        <div>
+                            <div class="list-item-label">XHTTP</div>
+                            <div class="list-item-description">仅支持 VLESS 协议</div>
+                        </div>
+                        <div class="switch" id="switchXHTTP"></div>
+                    </div>
+                </div>
+                <!-- XHTTP 模式选择（仅 XHTTP 开启时显示） -->
+                <div id="xhttpModeGroup" style="margin-top: 12px; display: none;">
+                    <label style="font-size: 13px; font-weight: 600; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px;">XHTTP 模式</label>
+                    <select id="xhttpModeSelect" style="width:100%; padding: 12px 16px; border-radius: 12px; border: 2px solid transparent; background: rgba(142,142,147,0.12); font-size: 17px; outline: none; transition: all 0.2s;">
+                        <option value="auto">Auto</option>
+                        <option value="packet-up">Packet-UP</option>
+                        <option value="stream-up">Stream-UP</option>
+                        <option value="stream-one">Stream-ONE</option>
+                    </select>
+                </div>
+            </div>
+            <!-- ========== 传输方式结束 ========== -->
             
             <div class="list-item" onclick="toggleSwitch('switchDomain')">
                 <div>
@@ -1263,13 +1324,13 @@ function generateHomePage(scuValue) {
                         </div>
                         <div class="switch active" id="switchVL"></div>
                     </div>
-                    <div class="list-item" onclick="toggleSwitch('switchTJ')">
+                    <div class="list-item" id="trojanItem" onclick="toggleSwitch('switchTJ')">
                         <div>
                             <div class="list-item-label">Trojan (tj)</div>
                         </div>
                         <div class="switch" id="switchTJ"></div>
                     </div>
-                    <div class="list-item" onclick="toggleSwitch('switchVM')">
+                    <div class="list-item" id="vmessItem" onclick="toggleSwitch('switchVM')">
                         <div>
                             <div class="list-item-label">VMess (vm)</div>
                         </div>
@@ -1309,7 +1370,6 @@ function generateHomePage(scuValue) {
                 </div>
             </div>
             
-            <!-- ========== 运营商选择（顺序已调换：电信、联通、移动） ========== -->
             <div class="form-group">
                 <label>运营商选择</label>
                 <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px;">
@@ -1327,7 +1387,6 @@ function generateHomePage(scuValue) {
                     </label>
                 </div>
             </div>
-            <!-- ========== 运营商选择结束 ========== -->
             
             <!-- 仅TLS节点默认开启 -->
             <div class="list-item" onclick="toggleSwitch('switchTLS')" style="margin-top: 8px;">
@@ -1364,20 +1423,92 @@ function generateHomePage(scuValue) {
     
     <script>
         let switches = {
+            switchWS: true,      // 默认 WS
+            switchXHTTP: false,  // 默认关闭 XHTTP
             switchDomain: true,
             switchIP: true,
             switchGitHub: true,
-            switchVL: true,      // VLESS 默认开启
+            switchVL: true,
             switchTJ: false,
             switchVM: false,
-            switchTLS: true,     // 仅TLS 默认开启
+            switchTLS: true,
             switchECH: false
         };
         
+        // 禁用 VMess/Trojan 的样式控制
+        function updateVMTroState() {
+            const xhttpActive = switches.switchXHTTP;
+            const trojanItem = document.getElementById('trojanItem');
+            const vmessItem = document.getElementById('vmessItem');
+            const switchTJ = document.getElementById('switchTJ');
+            const switchVM = document.getElementById('switchVM');
+            
+            if (xhttpActive) {
+                // 关闭并禁用
+                if (switches.switchTJ) {
+                    switches.switchTJ = false;
+                    switchTJ.classList.remove('active');
+                }
+                if (switches.switchVM) {
+                    switches.switchVM = false;
+                    switchVM.classList.remove('active');
+                }
+                trojanItem.style.opacity = '0.4';
+                trojanItem.style.pointerEvents = 'none';
+                vmessItem.style.opacity = '0.4';
+                vmessItem.style.pointerEvents = 'none';
+            } else {
+                trojanItem.style.opacity = '1';
+                trojanItem.style.pointerEvents = 'auto';
+                vmessItem.style.opacity = '1';
+                vmessItem.style.pointerEvents = 'auto';
+            }
+        }
+        
         function toggleSwitch(id) {
             const switchEl = document.getElementById(id);
+            // 如果开关被禁用（如 XHTTP 下 VM/Tro 被禁用），直接返回
+            if (switchEl.classList.contains('disabled')) return;
+            
+            // 处理互斥：WS 和 XHTTP 不能同时开启
+            if (id === 'switchWS' && switches.switchXHTTP) {
+                // 关闭 XHTTP
+                switches.switchXHTTP = false;
+                document.getElementById('switchXHTTP').classList.remove('active');
+                document.getElementById('xhttpModeGroup').style.display = 'none';
+                updateVMTroState();
+            }
+            if (id === 'switchXHTTP' && switches.switchWS) {
+                // 关闭 WS
+                switches.switchWS = false;
+                document.getElementById('switchWS').classList.remove('active');
+            }
+            
+            // 切换当前开关
             switches[id] = !switches[id];
             switchEl.classList.toggle('active');
+            
+            // 若开启 XHTTP，显示模式选择，并禁用 VM/Tro
+            if (id === 'switchXHTTP' && switches.switchXHTTP) {
+                document.getElementById('xhttpModeGroup').style.display = 'block';
+                // 关闭 VLESS? 不，保留 VLESS，但 VLESS 是唯一可用协议。
+                updateVMTroState();
+                // 如果 VLESS 未开启，自动开启（因为 XHTTP 仅支持 VLESS）
+                if (!switches.switchVL) {
+                    switches.switchVL = true;
+                    document.getElementById('switchVL').classList.add('active');
+                }
+            }
+            if (id === 'switchXHTTP' && !switches.switchXHTTP) {
+                document.getElementById('xhttpModeGroup').style.display = 'none';
+                updateVMTroState();
+            }
+            if (id === 'switchWS' && switches.switchWS) {
+                // 恢复 VM/Tro
+                updateVMTroState();
+            }
+            
+            // ECH 逻辑
             if (id === 'switchECH') {
                 const echOpt = document.getElementById('echOptionsGroup');
                 if (echOpt) echOpt.style.display = switches.switchECH ? 'block' : 'none';
@@ -1389,7 +1520,10 @@ function generateHomePage(scuValue) {
             }
         }
         
-        // ========== 解析节点链接（增加协议自动切换） ==========
+        // 初始化状态
+        updateVMTroState();
+        
+        // ========== 解析节点链接（增加传输识别，支持完整 XHTTP 模式） ==========
         function parseLink() {
             const input = document.getElementById('parseInput').value.trim();
             if (!input) {
@@ -1398,6 +1532,8 @@ function generateHomePage(scuValue) {
             }
             let host = '', uuid = '', path = '/';
             let detectedProtocol = ''; // 'vless', 'trojan', 'vmess'
+            let detectedTransport = 'ws'; // 'ws' 或 'xhttp'
+            let detectedXHTTPMode = 'auto';
             try {
                 if (input.startsWith('vless://')) {
                     const url = new URL(input);
@@ -1405,12 +1541,25 @@ function generateHomePage(scuValue) {
                     host = url.searchParams.get('sni') || url.searchParams.get('host') || url.hostname;
                     path = url.searchParams.get('path') || '/';
                     detectedProtocol = 'vless';
+                    const type = url.searchParams.get('type') || 'ws';
+                    if (type === 'xhttp') {
+                        detectedTransport = 'xhttp';
+                        detectedXHTTPMode = url.searchParams.get('mode') || 'auto';
+                        // 检查是否是合法的 mode 值，若不是则设为 auto
+                        const validModes = ['auto', 'packet-up', 'stream-up', 'stream-one'];
+                        if (!validModes.includes(detectedXHTTPMode)) {
+                            detectedXHTTPMode = 'auto';
+                        }
+                    } else {
+                        detectedTransport = 'ws';
+                    }
                 } else if (input.startsWith('trojan://')) {
                     const url = new URL(input);
                     uuid = url.username;
                     host = url.searchParams.get('sni') || url.searchParams.get('host') || url.hostname;
                     path = url.searchParams.get('path') || '/';
                     detectedProtocol = 'trojan';
+                    detectedTransport = 'ws';
                 } else if (input.startsWith('vmess://')) {
                     const base64 = input.substring(8);
                     const jsonStr = atob(base64);
@@ -1423,6 +1572,7 @@ function generateHomePage(scuValue) {
                         host = host.substring(1, host.length - 1);
                     }
                     detectedProtocol = 'vmess';
+                    detectedTransport = 'ws';
                 } else {
                     alert('不支持的链接格式，仅支持 vless:// vmess:// trojan://');
                     return;
@@ -1432,13 +1582,7 @@ function generateHomePage(scuValue) {
                 if (uuid) document.getElementById('uuid').value = uuid;
                 if (path) document.getElementById('customPath').value = path;
                 
-                // ----- 自动切换协议开关 -----
-                // 定义协议对应的开关ID和状态变量
-                const protocolMap = {
-                    'vless': { id: 'switchVL', key: 'switchVL' },
-                    'trojan': { id: 'switchTJ', key: 'switchTJ' },
-                    'vmess': { id: 'switchVM', key: 'switchVM' }
-                };
+                // ----- 自动切换协议 -----
                 // 先关闭所有协议
                 for (let key of ['switchVL', 'switchTJ', 'switchVM']) {
                     if (switches[key]) {
@@ -1447,14 +1591,57 @@ function generateHomePage(scuValue) {
                     }
                 }
                 // 开启检测到的协议
-                if (detectedProtocol && protocolMap[detectedProtocol]) {
-                    const { id, key } = protocolMap[detectedProtocol];
-                    switches[key] = true;
-                    document.getElementById(id).classList.add('active');
+                if (detectedProtocol === 'vless') {
+                    switches.switchVL = true;
+                    document.getElementById('switchVL').classList.add('active');
+                } else if (detectedProtocol === 'trojan') {
+                    switches.switchTJ = true;
+                    document.getElementById('switchTJ').classList.add('active');
+                } else if (detectedProtocol === 'vmess') {
+                    switches.switchVM = true;
+                    document.getElementById('switchVM').classList.add('active');
                 }
-                // ----- 切换结束 -----
                 
-                alert('解析成功！已自动填入域名、UUID/Password、WebSocket 路径，并切换至对应协议。');
+                // ----- 自动切换传输方式 -----
+                // 若为 xhttp，关闭 WS，开启 XHTTP
+                if (detectedTransport === 'xhttp') {
+                    // 关闭 WS
+                    if (switches.switchWS) {
+                        switches.switchWS = false;
+                        document.getElementById('switchWS').classList.remove('active');
+                    }
+                    // 开启 XHTTP
+                    if (!switches.switchXHTTP) {
+                        switches.switchXHTTP = true;
+                        document.getElementById('switchXHTTP').classList.add('active');
+                    }
+                    document.getElementById('xhttpModeGroup').style.display = 'block';
+                    // 设置模式
+                    const modeSelect = document.getElementById('xhttpModeSelect');
+                    // 检查选项是否存在
+                    const options = Array.from(modeSelect.options).map(o => o.value);
+                    if (options.includes(detectedXHTTPMode)) {
+                        modeSelect.value = detectedXHTTPMode;
+                    } else {
+                        modeSelect.value = 'auto';
+                    }
+                    // 禁用 VM/Tro
+                    updateVMTroState();
+                } else {
+                    // 默认 WS：关闭 XHTTP，开启 WS
+                    if (switches.switchXHTTP) {
+                        switches.switchXHTTP = false;
+                        document.getElementById('switchXHTTP').classList.remove('active');
+                        document.getElementById('xhttpModeGroup').style.display = 'none';
+                    }
+                    if (!switches.switchWS) {
+                        switches.switchWS = true;
+                        document.getElementById('switchWS').classList.add('active');
+                    }
+                    updateVMTroState();
+                }
+                
+                alert('解析成功！已自动填入信息、切换协议和传输方式。');
             } catch (e) {
                 alert('解析失败：' + e.message);
             }
@@ -1533,6 +1720,10 @@ function generateHomePage(scuValue) {
             
             const githubUrl = document.getElementById('githubUrl').value.trim();
             
+            // 获取传输方式
+            const transport = switches.switchXHTTP ? 'xhttp' : 'ws';
+            const xhttpMode = document.getElementById('xhttpModeSelect').value;
+            
             const currentUrl = new URL(window.location.href);
             const baseUrl = currentUrl.origin;
             let subscriptionUrl = \`\${baseUrl}/\${uuid}/sub?domain=\${encodeURIComponent(domain)}&epd=\${switches.switchDomain ? 'yes' : 'no'}&epi=\${switches.switchIP ? 'yes' : 'no'}&egi=\${switches.switchGitHub ? 'yes' : 'no'}\`;
@@ -1542,7 +1733,7 @@ function generateHomePage(scuValue) {
                 subscriptionUrl += \`&piu=\${encodeURIComponent(githubUrl)}\`;
             }
             
-            // 添加协议选择（仅当开关开启时添加参数，服务端严格按参数判断）
+            // 添加协议选择
             if (switches.switchVL) subscriptionUrl += '&ev=yes';
             if (switches.switchTJ) subscriptionUrl += '&et=yes';
             if (switches.switchVM) subscriptionUrl += '&mess=yes';
@@ -1553,7 +1744,7 @@ function generateHomePage(scuValue) {
             if (!ispUnicom) subscriptionUrl += '&ispUnicom=no';
             if (!ispTelecom) subscriptionUrl += '&ispTelecom=no';
             
-            // 添加TLS控制（ECH 开启时也会在服务端强制仅 TLS）
+            // 添加TLS控制
             if (switches.switchTLS) subscriptionUrl += '&dkby=yes';
             if (switches.switchECH) {
                 subscriptionUrl += '&ech=yes';
@@ -1566,6 +1757,12 @@ function generateHomePage(scuValue) {
             // 添加自定义路径
             if (customPath && customPath !== '/') {
                 subscriptionUrl += \`&path=\${encodeURIComponent(customPath)}\`;
+            }
+            
+            // 添加传输参数
+            subscriptionUrl += \`&transport=\${transport}\`;
+            if (transport === 'xhttp') {
+                subscriptionUrl += \`&xhttpMode=\${encodeURIComponent(xhttpMode)}\`;
             }
             
             let finalUrl = subscriptionUrl;
@@ -1666,7 +1863,7 @@ export default {
             });
         }
         
-        // 测试优选API API: /test-optimize-api?url=xxx&port=443
+        // 测试优选API
         if (path === '/test-optimize-api') {
             if (request.method === 'OPTIONS') {
                 return new Response(null, {
@@ -1722,7 +1919,7 @@ export default {
             }
         }
         
-        // 订阅请求格式: /{UUID或Password}/sub?domain=xxx&epd=yes&epi=yes&egi=yes
+        // 订阅请求
         const pathMatch = path.match(/^\/([^\/]+)\/sub$/);
         if (pathMatch) {
             const uuid = pathMatch[1];
@@ -1738,7 +1935,7 @@ export default {
             egi = url.searchParams.get('egi') !== 'no';
             const piu = url.searchParams.get('piu') || defaultIPURL;
             
-            // 协议选择（严格按参数判断，不再回退到全局变量）
+            // 协议选择（严格按参数判断）
             const evEnabled = url.searchParams.get('ev') === 'yes';
             const etEnabled = url.searchParams.get('et') === 'yes';
             const vmEnabled = url.searchParams.get('mess') === 'yes';
@@ -1752,7 +1949,7 @@ export default {
             const ispUnicom = url.searchParams.get('ispUnicom') !== 'no';
             const ispTelecom = url.searchParams.get('ispTelecom') !== 'no';
             
-            // TLS控制（ECH 开启时强制仅 TLS）
+            // TLS控制
             let disableNonTLS = url.searchParams.get('dkby') === 'yes';
             const echParam = url.searchParams.get('ech');
             const echEnabled = echParam === 'yes' || (echParam === null && enableECH);
@@ -1763,8 +1960,12 @@ export default {
 
             // 自定义路径
             const customPath = url.searchParams.get('path') || '/';
+            
+            // 传输参数
+            const transport = url.searchParams.get('transport') || 'ws';
+            const xhttpMode = url.searchParams.get('xhttpMode') || 'auto';
 
-            return await handleSubscriptionRequest(request, uuid, domain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig);
+            return await handleSubscriptionRequest(request, uuid, domain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig, transport, xhttpMode);
         }
         
         return new Response('Not Found', { status: 404 });
