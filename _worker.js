@@ -1,7 +1,6 @@
 // Cloudflare Worker - 简化版优选工具
 // 支持 VLESS/Trojan/VMess 协议，WS/XHTTP 传输，ECH，IP/运营商筛选
-// 修复记录：已修正 VMess 中文名问题，协议参数严格判断，解析自动切换协议和传输
-// XHTTP 模式: auto, packet-up, stream-up, stream-one
+// 修复记录：已修正 VMess 中文名问题，协议参数严格判断，解析自动切换协议/传输/模式/Extra
 
 // 默认配置
 let customPreferredIPs = [];
@@ -245,7 +244,7 @@ async function fetchAndParseNewIPs(piu) {
 }
 
 // 生成VLESS链接（支持传输类型：ws 或 xhttp）
-function generateLinksFromSource(list, user, workerDomain, disableNonTLS = false, customPath = '/', echConfig = null, transport = 'ws', xhttpMode = 'auto') {
+function generateLinksFromSource(list, user, workerDomain, disableNonTLS = false, customPath = '/', echConfig = null, transport = 'ws', xhttpMode = 'auto', xhttpExtra = '') {
     const CF_HTTP_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
     const CF_HTTPS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
     const defaultHttpsPorts = [443];
@@ -306,6 +305,10 @@ function generateLinksFromSource(list, user, workerDomain, disableNonTLS = false
             }
             if (transportType === 'xhttp') {
                 baseParams.mode = xhttpMode || 'auto';
+                if (xhttpExtra) {
+                    // 如果 extra 是对象字符串，确保它是有效的 JSON 或直接使用原字符串
+                    baseParams.extra = xhttpExtra;
+                }
             }
             const params = new URLSearchParams(baseParams);
             links.push(`${proto}://${user}@${safeIP}:${port}?${params.toString()}#${encodeURIComponent(nodeName)}`);
@@ -456,7 +459,7 @@ function generateVMessLinksFromSource(list, user, workerDomain, disableNonTLS = 
 }
 
 // 从GitHub IP生成链接（VLESS，支持传输类型）
-function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', echConfig = null, transport = 'ws', xhttpMode = 'auto') {
+function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', echConfig = null, transport = 'ws', xhttpMode = 'auto', xhttpExtra = '') {
     const CF_HTTP_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
     const CF_HTTPS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
     const links = [];
@@ -464,6 +467,10 @@ function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', ech
     const proto = 'vless';
     const echSuffix = echConfig ? `&alpn=h3%2Ch2%2Chttp%2F1.1&ech=${encodeURIComponent(echConfig)}` : '';
     const transportType = transport === 'xhttp' ? 'xhttp' : 'ws';
+    let extraParam = '';
+    if (transportType === 'xhttp' && xhttpExtra) {
+        extraParam = `&extra=${encodeURIComponent(xhttpExtra)}`;
+    }
     const modeParam = transportType === 'xhttp' ? `&mode=${xhttpMode || 'auto'}` : '';
     
     list.forEach(item => {
@@ -472,15 +479,15 @@ function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', ech
         
         if (CF_HTTPS_PORTS.includes(port)) {
             const wsNodeName = `${nodeName}-${port}-${transportType.toUpperCase()}-TLS`;
-            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=tls&sni=${workerDomain}&fp=chrome&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}${echSuffix}#${encodeURIComponent(wsNodeName)}`;
+            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=tls&sni=${workerDomain}&fp=chrome&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}${extraParam}${echSuffix}#${encodeURIComponent(wsNodeName)}`;
             links.push(link);
         } else if (CF_HTTP_PORTS.includes(port)) {
             const wsNodeName = `${nodeName}-${port}-${transportType.toUpperCase()}`;
-            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=none&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}#${encodeURIComponent(wsNodeName)}`;
+            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=none&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}${extraParam}#${encodeURIComponent(wsNodeName)}`;
             links.push(link);
         } else {
             const wsNodeName = `${nodeName}-${port}-${transportType.toUpperCase()}-TLS`;
-            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=tls&sni=${workerDomain}&fp=chrome&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}${echSuffix}#${encodeURIComponent(wsNodeName)}`;
+            const link = `${proto}://${user}@${item.ip}:${port}?encryption=none&security=tls&sni=${workerDomain}&fp=chrome&type=${transportType}&host=${workerDomain}&path=${wsPath}${modeParam}${extraParam}${echSuffix}#${encodeURIComponent(wsNodeName)}`;
             links.push(link);
         }
     });
@@ -488,7 +495,7 @@ function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', ech
 }
 
 // 生成订阅内容
-async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig = null, transport = 'ws', xhttpMode = 'auto') {
+async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig = null, transport = 'ws', xhttpMode = 'auto', xhttpExtra = '') {
     const url = new URL(request.url);
     const finalLinks = [];
     const workerDomain = url.hostname;  // workerDomain始终是请求的hostname
@@ -503,7 +510,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
         
         if (useVL) {
             // 如果传输是 xhttp，只生成 VLESS
-            finalLinks.push(...generateLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig, transport, xhttpMode));
+            finalLinks.push(...generateLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig, transport, xhttpMode, xhttpExtra));
         }
         if (etEnabled && transport !== 'xhttp') { // XHTTP 下不生成 Trojan
             finalLinks.push(...await generateTrojanLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig));
@@ -567,7 +574,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                         const useVL = hasProtocol ? evEnabled : true;
                         
                         if (useVL) {
-                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig, transport, xhttpMode));
+                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig, transport, xhttpMode, xhttpExtra));
                         }
                     }
                 }
@@ -616,7 +623,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                         const useVL = hasProtocol ? evEnabled : true;
                         
                         if (useVL) {
-                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig, transport, xhttpMode));
+                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig, transport, xhttpMode, xhttpExtra));
                         }
                     }
                 }
@@ -628,7 +635,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                     const useVL = hasProtocol ? evEnabled : true;
                     
                     if (useVL) {
-                        finalLinks.push(...generateLinksFromNewIPs(newIPList, user, nodeDomain, wsPath, echConfig, transport, xhttpMode));
+                        finalLinks.push(...generateLinksFromNewIPs(newIPList, user, nodeDomain, wsPath, echConfig, transport, xhttpMode, xhttpExtra));
                     }
                 }
             }
@@ -698,6 +705,12 @@ function generateClashConfig(links) {
         const echDomain = echParam ? decodeURIComponent(echParam).split('+')[0] : '';
         const type = link.match(/type=([^&#]+)/)?.[1] || 'ws';
         const mode = link.match(/mode=([^&#]+)/)?.[1] || '';
+        const extraRaw = link.match(/extra=([^&#]+)/)?.[1];
+        const extra = extraRaw ? decodeURIComponent(extraRaw) : '';
+        let extraJson = {};
+        try {
+            if (extra) extraJson = JSON.parse(extra);
+        } catch(e) {}
         
         yaml += `  - name: ${name}\n`;
         yaml += `    type: vless\n`;
@@ -711,6 +724,10 @@ function generateClashConfig(links) {
             yaml += `      mode: ${mode || 'auto'}\n`;
             yaml += `      path: ${path}\n`;
             yaml += `      host: ${host}\n`;
+            if (extraJson.xPaddingBytes) {
+                yaml += `      x-padding-bytes: ${extraJson.xPaddingBytes}\n`;
+            }
+            // 其他 extra 字段可以继续添加
         } else {
             yaml += `    ws-opts:\n`;
             yaml += `      path: ${path}\n`;
@@ -850,7 +867,8 @@ function generateHomePage(scuValue) {
         }
         
         .form-group input,
-        .form-group textarea {
+        .form-group textarea,
+        .form-group select {
             width: 100%;
             padding: 14px 16px;
             font-size: 17px;
@@ -865,7 +883,8 @@ function generateHomePage(scuValue) {
         }
         
         .form-group input:focus,
-        .form-group textarea:focus {
+        .form-group textarea:focus,
+        .form-group select:focus {
             background: rgba(142, 142, 147, 0.16);
             border-color: #007AFF;
             transform: scale(1.005);
@@ -1160,13 +1179,15 @@ function generateHomePage(scuValue) {
             }
             
             .form-group input,
-            .form-group textarea {
+            .form-group textarea,
+            .form-group select {
                 background: rgba(142, 142, 147, 0.2);
                 color: #f5f5f7;
             }
             
             .form-group input:focus,
-            .form-group textarea:focus {
+            .form-group textarea:focus,
+            .form-group select:focus {
                 background: rgba(142, 142, 147, 0.25);
                 border-color: #5ac8fa;
             }
@@ -1280,10 +1301,16 @@ function generateHomePage(scuValue) {
                     <label style="font-size: 13px; font-weight: 600; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px;">XHTTP 模式</label>
                     <select id="xhttpModeSelect" style="width:100%; padding: 12px 16px; border-radius: 12px; border: 2px solid transparent; background: rgba(142,142,147,0.12); font-size: 17px; outline: none; transition: all 0.2s;">
                         <option value="auto">Auto</option>
-                        <option value="packet-up">Packet-UP</option>
-                        <option value="stream-up">Stream-UP</option>
-                        <option value="stream-one">Stream-ONE</option>
+                        <option value="packet-up">Packet-Up</option>
+                        <option value="stream-up">Stream-Up</option>
+                        <option value="stream-one">Stream-One</option>
                     </select>
+                </div>
+                <!-- XHTTP Extra（仅 XHTTP 开启时显示） -->
+                <div id="xhttpExtraGroup" style="margin-top: 12px; display: none;">
+                    <label style="font-size: 13px; font-weight: 600; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px;">XHTTP Extra</label>
+                    <input type="text" id="xhttpExtra" placeholder='例如: {"mode":"auto","xPaddingBytes":"100-1000"}' style="font-size: 14px;">
+                    <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">JSON 格式的额外参数，会附加到链接的 extra 字段</small>
                 </div>
             </div>
             <!-- ========== 传输方式结束 ========== -->
@@ -1476,6 +1503,7 @@ function generateHomePage(scuValue) {
                 switches.switchXHTTP = false;
                 document.getElementById('switchXHTTP').classList.remove('active');
                 document.getElementById('xhttpModeGroup').style.display = 'none';
+                document.getElementById('xhttpExtraGroup').style.display = 'none';
                 updateVMTroState();
             }
             if (id === 'switchXHTTP' && switches.switchWS) {
@@ -1491,6 +1519,7 @@ function generateHomePage(scuValue) {
             // 若开启 XHTTP，显示模式选择，并禁用 VM/Tro
             if (id === 'switchXHTTP' && switches.switchXHTTP) {
                 document.getElementById('xhttpModeGroup').style.display = 'block';
+                document.getElementById('xhttpExtraGroup').style.display = 'block';
                 // 关闭 VLESS? 不，保留 VLESS，但 VLESS 是唯一可用协议。
                 updateVMTroState();
                 // 如果 VLESS 未开启，自动开启（因为 XHTTP 仅支持 VLESS）
@@ -1501,6 +1530,7 @@ function generateHomePage(scuValue) {
             }
             if (id === 'switchXHTTP' && !switches.switchXHTTP) {
                 document.getElementById('xhttpModeGroup').style.display = 'none';
+                document.getElementById('xhttpExtraGroup').style.display = 'none';
                 updateVMTroState();
             }
             if (id === 'switchWS' && switches.switchWS) {
@@ -1523,7 +1553,7 @@ function generateHomePage(scuValue) {
         // 初始化状态
         updateVMTroState();
         
-        // ========== 解析节点链接（增加传输识别，支持完整 XHTTP 模式） ==========
+        // ========== 解析节点链接（增加传输识别 + Extra） ==========
         function parseLink() {
             const input = document.getElementById('parseInput').value.trim();
             if (!input) {
@@ -1534,6 +1564,7 @@ function generateHomePage(scuValue) {
             let detectedProtocol = ''; // 'vless', 'trojan', 'vmess'
             let detectedTransport = 'ws'; // 'ws' 或 'xhttp'
             let detectedXHTTPMode = 'auto';
+            let detectedXHTTPExtra = '';
             try {
                 if (input.startsWith('vless://')) {
                     const url = new URL(input);
@@ -1545,11 +1576,7 @@ function generateHomePage(scuValue) {
                     if (type === 'xhttp') {
                         detectedTransport = 'xhttp';
                         detectedXHTTPMode = url.searchParams.get('mode') || 'auto';
-                        // 检查是否是合法的 mode 值，若不是则设为 auto
-                        const validModes = ['auto', 'packet-up', 'stream-up', 'stream-one'];
-                        if (!validModes.includes(detectedXHTTPMode)) {
-                            detectedXHTTPMode = 'auto';
-                        }
+                        detectedXHTTPExtra = url.searchParams.get('extra') || '';
                     } else {
                         detectedTransport = 'ws';
                     }
@@ -1559,6 +1586,7 @@ function generateHomePage(scuValue) {
                     host = url.searchParams.get('sni') || url.searchParams.get('host') || url.hostname;
                     path = url.searchParams.get('path') || '/';
                     detectedProtocol = 'trojan';
+                    // Trojan 只支持 WS
                     detectedTransport = 'ws';
                 } else if (input.startsWith('vmess://')) {
                     const base64 = input.substring(8);
@@ -1572,6 +1600,7 @@ function generateHomePage(scuValue) {
                         host = host.substring(1, host.length - 1);
                     }
                     detectedProtocol = 'vmess';
+                    // VMess 只支持 WS
                     detectedTransport = 'ws';
                 } else {
                     alert('不支持的链接格式，仅支持 vless:// vmess:// trojan://');
@@ -1616,14 +1645,14 @@ function generateHomePage(scuValue) {
                         document.getElementById('switchXHTTP').classList.add('active');
                     }
                     document.getElementById('xhttpModeGroup').style.display = 'block';
+                    document.getElementById('xhttpExtraGroup').style.display = 'block';
                     // 设置模式
-                    const modeSelect = document.getElementById('xhttpModeSelect');
-                    // 检查选项是否存在
-                    const options = Array.from(modeSelect.options).map(o => o.value);
-                    if (options.includes(detectedXHTTPMode)) {
-                        modeSelect.value = detectedXHTTPMode;
-                    } else {
-                        modeSelect.value = 'auto';
+                    if (detectedXHTTPMode) {
+                        document.getElementById('xhttpModeSelect').value = detectedXHTTPMode;
+                    }
+                    // 设置 Extra
+                    if (detectedXHTTPExtra) {
+                        document.getElementById('xhttpExtra').value = detectedXHTTPExtra;
                     }
                     // 禁用 VM/Tro
                     updateVMTroState();
@@ -1633,6 +1662,7 @@ function generateHomePage(scuValue) {
                         switches.switchXHTTP = false;
                         document.getElementById('switchXHTTP').classList.remove('active');
                         document.getElementById('xhttpModeGroup').style.display = 'none';
+                        document.getElementById('xhttpExtraGroup').style.display = 'none';
                     }
                     if (!switches.switchWS) {
                         switches.switchWS = true;
@@ -1723,6 +1753,7 @@ function generateHomePage(scuValue) {
             // 获取传输方式
             const transport = switches.switchXHTTP ? 'xhttp' : 'ws';
             const xhttpMode = document.getElementById('xhttpModeSelect').value;
+            const xhttpExtra = document.getElementById('xhttpExtra').value.trim();
             
             const currentUrl = new URL(window.location.href);
             const baseUrl = currentUrl.origin;
@@ -1763,6 +1794,9 @@ function generateHomePage(scuValue) {
             subscriptionUrl += \`&transport=\${transport}\`;
             if (transport === 'xhttp') {
                 subscriptionUrl += \`&xhttpMode=\${encodeURIComponent(xhttpMode)}\`;
+                if (xhttpExtra) {
+                    subscriptionUrl += \`&xhttpExtra=\${encodeURIComponent(xhttpExtra)}\`;
+                }
             }
             
             let finalUrl = subscriptionUrl;
@@ -1964,8 +1998,9 @@ export default {
             // 传输参数
             const transport = url.searchParams.get('transport') || 'ws';
             const xhttpMode = url.searchParams.get('xhttpMode') || 'auto';
+            const xhttpExtra = url.searchParams.get('xhttpExtra') || '';
 
-            return await handleSubscriptionRequest(request, uuid, domain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig, transport, xhttpMode);
+            return await handleSubscriptionRequest(request, uuid, domain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig, transport, xhttpMode, xhttpExtra);
         }
         
         return new Response('Not Found', { status: 404 });
