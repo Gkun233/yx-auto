@@ -1,6 +1,7 @@
 // Cloudflare Worker - 简化版优选工具
 // 仅保留优选域名、优选IP、GitHub、上报和节点生成功能
 // 修复记录：已修正 VMess 协议下节点名称包含中文导致 Error 1101 的问题
+// 2026-09-01 修复：协议选择逻辑，严格按参数判断；ECH DNS 示例值更新
 
 // 默认配置
 let customPreferredIPs = [];
@@ -8,7 +9,7 @@ let customPreferredDomains = [];
 let epd = true;  // 启用优选域名
 let epi = true;  // 启用优选IP
 let egi = true;  // 启用GitHub优选
-let ev = true;   // 启用VLESS协议
+let ev = true;   // 启用VLESS协议（仅用于默认，订阅请求由参数控制）
 let et = false;  // 启用Trojan协议
 let vm = false;  // 启用VMess协议
 let scu = 'https://subapi.0316666.xyz/sub';  // 订阅转换地址
@@ -496,7 +497,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
     async function addNodesFromList(list) {
         // 确保至少有一个协议被启用
         const hasProtocol = evEnabled || etEnabled || vmEnabled;
-        const useVL = hasProtocol ? evEnabled : true;  // 如果没有选择任何协议，默认使用VLESS
+        const useVL = hasProtocol ? evEnabled : true;  // 如果没有选择任何协议，默认使用VLESS（但实际上有参数控制）
         
         if (useVL) {
             finalLinks.push(...generateLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig));
@@ -1343,7 +1344,7 @@ function generateHomePage(scuValue) {
             </div>
             <div class="form-group" id="echOptionsGroup" style="margin-top: 12px; display: none;">
                 <label>ECH 自定义 DNS（可选）</label>
-                <input type="text" id="customDNS" placeholder="例如: https://dns.alidns.com/dns-query" style="font-size: 14px;">
+                <input type="text" id="customDNS" placeholder="https://dns.alidns.com/dns-query" style="font-size: 14px;">
                 <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">用于 ECH 配置查询的 DoH 地址</small>
                 <label style="margin-top: 12px; display: block;">ECH 域名（可选）</label>
                 <input type="text" id="customECHDomain" placeholder="例如: cloudflare-ech.com" style="font-size: 14px;">
@@ -1507,7 +1508,7 @@ function generateHomePage(scuValue) {
                 subscriptionUrl += \`&piu=\${encodeURIComponent(githubUrl)}\`;
             }
             
-            // 添加协议选择
+            // 添加协议选择（仅当开关开启时添加参数，服务端严格按参数判断）
             if (switches.switchVL) subscriptionUrl += '&ev=yes';
             if (switches.switchTJ) subscriptionUrl += '&et=yes';
             if (switches.switchVM) subscriptionUrl += '&mess=yes';
@@ -1703,8 +1704,8 @@ export default {
             egi = url.searchParams.get('egi') !== 'no';
             const piu = url.searchParams.get('piu') || defaultIPURL;
             
-            // 协议选择
-            const evEnabled = url.searchParams.get('ev') === 'yes' || (url.searchParams.get('ev') === null && ev);
+            // 协议选择（严格按参数判断，不再回退到全局变量）
+            const evEnabled = url.searchParams.get('ev') === 'yes';
             const etEnabled = url.searchParams.get('et') === 'yes';
             const vmEnabled = url.searchParams.get('mess') === 'yes';
             
