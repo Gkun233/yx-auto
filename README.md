@@ -2,7 +2,7 @@
 
 一个简化版的Cloudflare Workers优选工具，用来生成订阅链接。
 
-GitHub: https://github.com/byJoey/yx-auto
+GitHub: https://github.com/Gkun233/yx-auto
 
 ## 主要功能
 
@@ -23,11 +23,8 @@ GitHub: https://github.com/byJoey/yx-auto
 ## 使用
 
 打开你的Worker地址，会看到一个界面：
-
-1. 填域名和UUID
-2. 选协议（VLESS/Trojan/VMess）
-3. 选客户端类型
-4. 点按钮生成订阅链接
+1.一键解析VLESS/Trojan/VMess
+2. 点按钮生成订阅链接
 
 就这么简单。
 
