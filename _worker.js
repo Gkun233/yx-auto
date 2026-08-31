@@ -1,7 +1,7 @@
 // Cloudflare Worker - 简化版优选工具
 // 仅保留优选域名、优选IP、GitHub、上报和节点生成功能
 // 修复记录：已修正 VMess 协议下节点名称包含中文导致 Error 1101 的问题
-// 2026-09-01 修复：协议选择逻辑严格按参数判断；ECH DNS 示例值更新；运营商顺序调换
+// 2026-09-01 修复：协议选择逻辑严格按参数判断；ECH DNS 示例值更新；运营商顺序调换；解析时自动切换协议；仅TLS默认开启
 
 // 默认配置
 let customPreferredIPs = [];
@@ -1207,7 +1207,7 @@ function generateHomePage(scuValue) {
                     <input type="text" id="parseInput" placeholder="粘贴 vless:// vmess:// trojan:// 链接" style="flex: 1;">
                     <button type="button" class="client-btn" onclick="parseLink()" style="white-space: nowrap;">解析</button>
                 </div>
-                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自动提取 UUID/Password、域名和 WebSocket 路径</small>
+                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自动提取 UUID/Password、域名和 WebSocket 路径，并自动切换对应协议</small>
             </div>
             <!-- ========== 解析区域结束 ========== -->
             
@@ -1329,12 +1329,13 @@ function generateHomePage(scuValue) {
             </div>
             <!-- ========== 运营商选择结束 ========== -->
             
+            <!-- 仅TLS节点默认开启 -->
             <div class="list-item" onclick="toggleSwitch('switchTLS')" style="margin-top: 8px;">
                 <div>
                     <div class="list-item-label">仅TLS节点</div>
                     <div class="list-item-description">启用后只生成带TLS的节点，不生成非TLS节点（如80端口）</div>
                 </div>
-                <div class="switch" id="switchTLS"></div>
+                <div class="switch active" id="switchTLS"></div>
             </div>
             
             <div class="list-item" onclick="toggleSwitch('switchECH')" style="margin-top: 8px;">
@@ -1366,10 +1367,10 @@ function generateHomePage(scuValue) {
             switchDomain: true,
             switchIP: true,
             switchGitHub: true,
-            switchVL: true,
+            switchVL: true,      // VLESS 默认开启
             switchTJ: false,
             switchVM: false,
-            switchTLS: false,
+            switchTLS: true,     // 仅TLS 默认开启
             switchECH: false
         };
         
@@ -1388,7 +1389,7 @@ function generateHomePage(scuValue) {
             }
         }
         
-        // ========== 解析节点链接（修复版） ==========
+        // ========== 解析节点链接（增加协议自动切换） ==========
         function parseLink() {
             const input = document.getElementById('parseInput').value.trim();
             if (!input) {
@@ -1396,13 +1397,20 @@ function generateHomePage(scuValue) {
                 return;
             }
             let host = '', uuid = '', path = '/';
+            let detectedProtocol = ''; // 'vless', 'trojan', 'vmess'
             try {
-                if (input.startsWith('vless://') || input.startsWith('trojan://')) {
+                if (input.startsWith('vless://')) {
                     const url = new URL(input);
                     uuid = url.username;
-                    // 优先取 sni，再取 host，最后回退到 hostname（IP）
                     host = url.searchParams.get('sni') || url.searchParams.get('host') || url.hostname;
                     path = url.searchParams.get('path') || '/';
+                    detectedProtocol = 'vless';
+                } else if (input.startsWith('trojan://')) {
+                    const url = new URL(input);
+                    uuid = url.username;
+                    host = url.searchParams.get('sni') || url.searchParams.get('host') || url.hostname;
+                    path = url.searchParams.get('path') || '/';
+                    detectedProtocol = 'trojan';
                 } else if (input.startsWith('vmess://')) {
                     const base64 = input.substring(8);
                     const jsonStr = atob(base64);
@@ -1414,6 +1422,7 @@ function generateHomePage(scuValue) {
                     if (host && host.startsWith('[') && host.endsWith(']')) {
                         host = host.substring(1, host.length - 1);
                     }
+                    detectedProtocol = 'vmess';
                 } else {
                     alert('不支持的链接格式，仅支持 vless:// vmess:// trojan://');
                     return;
@@ -1422,7 +1431,30 @@ function generateHomePage(scuValue) {
                 if (host) document.getElementById('domain').value = host;
                 if (uuid) document.getElementById('uuid').value = uuid;
                 if (path) document.getElementById('customPath').value = path;
-                alert('解析成功！已自动填入域名、UUID/Password 和 WebSocket 路径。');
+                
+                // ----- 自动切换协议开关 -----
+                // 定义协议对应的开关ID和状态变量
+                const protocolMap = {
+                    'vless': { id: 'switchVL', key: 'switchVL' },
+                    'trojan': { id: 'switchTJ', key: 'switchTJ' },
+                    'vmess': { id: 'switchVM', key: 'switchVM' }
+                };
+                // 先关闭所有协议
+                for (let key of ['switchVL', 'switchTJ', 'switchVM']) {
+                    if (switches[key]) {
+                        switches[key] = false;
+                        document.getElementById(key).classList.remove('active');
+                    }
+                }
+                // 开启检测到的协议
+                if (detectedProtocol && protocolMap[detectedProtocol]) {
+                    const { id, key } = protocolMap[detectedProtocol];
+                    switches[key] = true;
+                    document.getElementById(id).classList.add('active');
+                }
+                // ----- 切换结束 -----
+                
+                alert('解析成功！已自动填入域名、UUID/Password、WebSocket 路径，并切换至对应协议。');
             } catch (e) {
                 alert('解析失败：' + e.message);
             }
