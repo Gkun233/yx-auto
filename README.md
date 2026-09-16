@@ -57,3 +57,51 @@ GitHub 项目: [https://github.com/Gkun233/yx-auto](https://github.com/Gkun233/y
 订阅链接基础格式如下：
 ```text
 https://your-worker.workers.dev/{UUID}/sub?domain=your-domain.com&epd=yes&epi=yes&egi=yes
+```
+
+可以通过 `&target=` 参数直接指定客户端配置格式：
+- `base64` - 默认格式（通用节点链接列表，Base64 编码）
+- `clash` / `clashr` - 生成 Clash YAML 配置
+- `surge` - 生成 Surge 托管配置
+- `quantumult` / `quanx` - Quantumult X 格式
+
+---
+
+## ⚙️ URL 参数详解
+
+所有配置均可通过 URL 参数灵活控制，无需更改 Worker 源码：
+
+| 参数 | 说明 | 默认值 / 可选值 | 示例 |
+| :--- | :--- | :--- | :--- |
+| `domain` | 你的节点域名 / 反代 SNI（**必填**） | - | `domain=example.com` |
+| `path` | 自定义节点 Path 路径 | `/` | `path=%2Fcustom-path` |
+| `transport` | 传输方式 | `ws` / `xhttp` | `transport=xhttp` |
+| `xhttpMode` | XHTTP 模式（仅 XHTTP 生效） | `auto` / `packet-up` / `stream-up` / `stream-one` | `xhttpMode=auto` |
+| `xhttpExtra`| XHTTP Extra 参数（JSON 字符串） | - | `xhttpExtra=%7B%22mode%22%3A%22auto%22%7D` |
+| `ev` | 启用 VLESS 协议 | `yes` / `no`（默认 `yes`） | `ev=yes` |
+| `et` | 启用 Trojan 协议（仅限 WS 传输） | `yes` / `no`（默认 `no`） | `et=yes` |
+| `mess` | 启用 VMess 协议（仅限 WS 传输） | `yes` / `no`（默认 `no`） | `mess=yes` |
+| `epd` | 启用内置优选域名 | `yes` / `no`（默认 `yes`） | `epd=yes` |
+| `epi` | 启用动态优选 IP | `yes` / `no`（默认 `yes`） | `epi=yes` |
+| `egi` | 启用 GitHub 优选 / API 优选 | `yes` / `no`（默认 `yes`） | `egi=yes` |
+| `piu` | 自定义优选 IP 来源 URL 或 API 接口 | 默认内置仓库 | `piu=https://raw.github.com/...` |
+| `dkby` | 仅保留 TLS 节点（过滤 80 端口等非 TLS） | `yes` / `no`（默认 `no`） | `dkby=yes` |
+| `ech` | 启用 ECH（开启时自动强制仅 TLS） | `yes` / `no`（默认 `no`） | `ech=yes` |
+| `customDNS` | ECH 专用的 DoH DNS 解析地址 | 默认阿里 DNS | `customDNS=https%3A%2F%2Fdns.alidns.com%2Fdns-query` |
+| `customECHDomain` | ECH 目标域名 | `cloudflare-ech.com` | `customECHDomain=cloudflare-ech.com` |
+| `ipv4` | 启用 IPv4 节点 | `yes` / `no`（默认 `yes`） | `ipv4=yes` |
+| `ipv6` | 启用 IPv6 节点 | `yes` / `no`（默认 `yes`） | `ipv6=yes` |
+| `ispTelecom` | 启用电信优选节点 | `yes` / `no`（默认 `yes`） | `ispTelecom=yes` |
+| `ispUnicom` | 启用联通优选节点 | `yes` / `no`（默认 `yes`） | `ispUnicom=yes` |
+| `ispMobile` | 启用移动优选节点 | `yes` / `no`（默认 `yes`） | `ispMobile=yes` |
+| `target` | 输出订阅格式 | `base64` / `clash` / `surge` / `quanx` | `target=clash` |
+
+---
+
+## ⚠️ 注意事项
+
+1. **用途声明**：本工具仅为优选测速 IP 节点合并及订阅格式生成工具，**不提供任何代理服务与服务器流量转发**。
+2. **服务器配合**：生成的节点需配合您自己拥有的服务器与正确的反代域名使用。
+3. **原生地址已移除**：生成的节点列表中不再包含 Worker 自带的原生域名，防止原生域名受阻影响订阅节点质量。
+4. **XHTTP 协议限制**：XHTTP 传输方式目前仅支持 VLESS 协议，启用 XHTTP 时会自动禁用 Trojan / VMess。
+5. **VMess 参数说明**：VMess 参数采用 `mess` 而非 `vm`，以避免在部分网络环境下被敏感关键词拦截。
