@@ -1,6 +1,6 @@
 // Cloudflare Worker - 简化版优选工具
 // 支持 VLESS/Trojan/VMess 协议，WS/XHTTP 传输，ECH，IP/运营商筛选
-// 修复记录：已修正 VMess 中文名问题，协议参数严格判断，解析自动切换协议/传输/模式/Extra
+// 修复记录：已修正 VMess 中文名问题，协议参数严格判断，解析自动切换协议/传输/模式/Extra，已去除生成原生地址，修复模板字符串嵌套导致的 $ 语法错误
 
 // 默认配置
 let customPreferredIPs = [];
@@ -497,7 +497,6 @@ function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', ech
 async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig = null, transport = 'ws', xhttpMode = 'auto', xhttpExtra = '') {
     const url = new URL(request.url);
     const finalLinks = [];
-    const workerDomain = url.hostname;  // workerDomain始终是请求的hostname
     const nodeDomain = customDomain || url.hostname;  // 用户输入的域名用于生成节点时的host/sni
     const target = url.searchParams.get('target') || 'base64';
     const wsPath = customPath || '/';
@@ -518,10 +517,6 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
             finalLinks.push(...generateVMessLinksFromSource(list, user, nodeDomain, disableNonTLS, wsPath, echConfig));
         }
     }
-
-    // 原生地址
-    const nativeList = [{ ip: workerDomain, isp: '原生地址' }];
-    await addNodesFromList(nativeList);
 
     // 优选域名
     if (epd) {
@@ -1757,11 +1752,11 @@ function generateHomePage(scuValue) {
             
             const currentUrl = new URL(window.location.href);
             const baseUrl = currentUrl.origin;
-            let subscriptionUrl = \`\${baseUrl}/\${uuid}/sub?domain=\${encodeURIComponent(domain)}&epd=\${switches.switchDomain ? 'yes' : 'no'}&epi=\${switches.switchIP ? 'yes' : 'no'}&egi=\${switches.switchGitHub ? 'yes' : 'no'}\`;
+            let subscriptionUrl = baseUrl + '/' + uuid + '/sub?domain=' + encodeURIComponent(domain) + '&epd=' + (switches.switchDomain ? 'yes' : 'no') + '&epi=' + (switches.switchIP ? 'yes' : 'no') + '&egi=' + (switches.switchGitHub ? 'yes' : 'no');
             
             // 添加GitHub优选URL
             if (githubUrl) {
-                subscriptionUrl += \`&piu=\${encodeURIComponent(githubUrl)}\`;
+                subscriptionUrl += '&piu=' + encodeURIComponent(githubUrl);
             }
             
             // 添加协议选择
@@ -1780,22 +1775,22 @@ function generateHomePage(scuValue) {
             if (switches.switchECH) {
                 subscriptionUrl += '&ech=yes';
                 const dnsVal = document.getElementById('customDNS') && document.getElementById('customDNS').value.trim();
-                if (dnsVal) subscriptionUrl += \`&customDNS=\${encodeURIComponent(dnsVal)}\`;
+                if (dnsVal) subscriptionUrl += '&customDNS=' + encodeURIComponent(dnsVal);
                 const domainVal = document.getElementById('customECHDomain') && document.getElementById('customECHDomain').value.trim();
-                if (domainVal) subscriptionUrl += \`&customECHDomain=\${encodeURIComponent(domainVal)}\`;
+                if (domainVal) subscriptionUrl += '&customECHDomain=' + encodeURIComponent(domainVal);
             }
             
             // 添加自定义路径
             if (customPath && customPath !== '/') {
-                subscriptionUrl += \`&path=\${encodeURIComponent(customPath)}\`;
+                subscriptionUrl += '&path=' + encodeURIComponent(customPath);
             }
             
             // 添加传输参数
-            subscriptionUrl += \`&transport=\${transport}\`;
+            subscriptionUrl += '&transport=' + transport;
             if (transport === 'xhttp') {
-                subscriptionUrl += \`&xhttpMode=\${encodeURIComponent(xhttpMode)}\`;
+                subscriptionUrl += '&xhttpMode=' + encodeURIComponent(xhttpMode);
                 if (xhttpExtra) {
-                    subscriptionUrl += \`&xhttpExtra=\${encodeURIComponent(xhttpExtra)}\`;
+                    subscriptionUrl += '&xhttpExtra=' + encodeURIComponent(xhttpExtra);
                 }
             }
             
