@@ -1492,7 +1492,7 @@ function generateHomePage(scuValue) {
                 <input type="text" id="edgetunnelSubUrl" placeholder="例如sub://sub.cmliussss.net#CM" style="font-size: 15px;">
                 <button type="button" class="copy-btn" onclick="fetchOnlineSubSource(this)" style="margin-top:8px;">在线获取 SUB优选源</button>
                 <select id="onlineSubSourceSelect" onchange="document.getElementById('edgetunnelSubUrl').value=this.value" style="display: none; width:100%; padding: 12px 16px; border-radius: 12px; border: 2px solid transparent; background: rgba(142,142,147,0.12); font-size: 17px; outline: none; transition: all 0.2s;"></select>
-                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">留空时不拉取；支持 sub:// 或 https:// 格式；获取其他大佬的优选结果；</small>
+                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">留空时不拉取；支持 sub:// 或 https:// 格式，#后面是节点备注功能，可以删除；</small>
             </div>
             
             <div class="form-group" style="margin-top: 24px;">
