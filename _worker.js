@@ -1482,17 +1482,17 @@ function generateHomePage(scuValue) {
 
             <div class="list-item" onclick="toggleSwitch('switchEdgetunnelSub')" style="margin-top: 8px;">
                 <div>
-                    <div class="list-item-label">启用 Edgetunnel 优选订阅生成器</div>
-                    <div class="list-item-description">从 edgetunnel 的 /sub 接口拉取优选节点</div>
+                    <div class="list-item-label">启用优选订阅生成器</div>
+                    <div class="list-item-description">从 edgetunnel 复刻的功能。</div>
                 </div>
                 <div class="switch" id="switchEdgetunnelSub"></div>
             </div>
             <div class="form-group" id="edgetunnelSubGroup" style="margin-top: 12px; display: none;">
-                <label>Edgetunnel 优选订阅生成器地址（可选）</label>
-                <input type="text" id="edgetunnelSubUrl" placeholder="例如: sub://your-worker.workers.dev 或 https://your-worker.workers.dev" style="font-size: 15px;">
+                <label>优选订阅生成器地址（可选）</label>
+                <input type="text" id="edgetunnelSubUrl" placeholder="例如sub://sub.cmliussss.net#CM" style="font-size: 15px;">
                 <button type="button" class="copy-btn" onclick="fetchOnlineSubSource(this)" style="margin-top:8px;">在线获取 SUB优选源</button>
                 <select id="onlineSubSourceSelect" onchange="document.getElementById('edgetunnelSubUrl').value=this.value" style="display: none; width:100%; padding: 12px 16px; border-radius: 12px; border: 2px solid transparent; background: rgba(142,142,147,0.12); font-size: 17px; outline: none; transition: all 0.2s;"></select>
-                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">留空时不拉取；支持 sub:// 或 https:// 格式；可点击上方按钮从 bestcf.pages.dev 自动获取后在下拉框中选择</small>
+                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">留空时不拉取；支持 sub:// 或 https:// 格式；获取其他大佬的优选结果；</small>
             </div>
             
             <div class="form-group" style="margin-top: 24px;">
