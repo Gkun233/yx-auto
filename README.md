@@ -22,6 +22,7 @@ GitHub 项目: [https://github.com/Gkun233/yx-auto](https://github.com/Gkun233/y
   - **内置优选域名**：内置精选的常用高质量 Cloudflare 优选域名。
   - **动态优选 IP**：按电信/联通/移动/多线/IPv6 动态获取最新测速 IP。
   - **自定义 GitHub / API**：支持自定义 GitHub 仓库或第三方测速 API（自动兼容 TXT / CSV 格式及多种编码）。
+  - **Edgetunnel 优选订阅生成器 / SUB优选源**：可在「启用GitHub优选」下方开启，支持填写 `sub://` 或 `https://` 格式的 Edgetunnel `/sub` 生成器地址，自动拉取优选 IP；并支持点击「在线获取 SUB优选源」从 `https://bestcf.pages.dev/` 自动获取候选 SUB 优选订阅，并在下拉框中选择要使用的源。
 - **🔍 精细化节点筛选**：
   - **仅 TLS 节点**：支持过滤非 TLS 端口（如 80 端口），仅保留加密端口。
   - **IP 版本**：支持分别开启/关闭 IPv4 与 IPv6。
@@ -84,7 +85,9 @@ https://your-worker.workers.dev/{UUID}/sub?domain=your-domain.com&epd=yes&epi=ye
 | `epd` | 启用内置优选域名 | `yes` / `no`（默认 `yes`） | `epd=yes` |
 | `epi` | 启用动态优选 IP | `yes` / `no`（默认 `yes`） | `epi=yes` |
 | `egi` | 启用 GitHub 优选 / API 优选 | `yes` / `no`（默认 `yes`） | `egi=yes` |
-| `piu` | 自定义优选 IP 来源 URL 或 API 接口 | 默认内置仓库 | `piu=https://raw.github.com/...` |
+| `piu` | 自定义优选 IP 来源 URL 或 API 接口（也支持 `sub://` 生成器地址） | 默认内置仓库 | `piu=https://raw.github.com/...` |
+| `esub` | 启用 Edgetunnel 优选订阅生成器 | `yes` / `no`（默认 `no`） | `esub=yes` |
+| `esubUrl` | Edgetunnel 优选订阅生成器地址（`sub://` 或 `https://`，可用 `#备注` 追加到节点名） | - | `esubUrl=sub%3A%2F%2Fyour-worker.workers.dev%23CM` |
 | `dkby` | 仅保留 TLS 节点（过滤 80 端口等非 TLS） | `yes` / `no`（默认 `no`） | `dkby=yes` |
 | `ech` | 启用 ECH（开启时自动强制仅 TLS） | `yes` / `no`（默认 `no`） | `ech=yes` |
 | `customDNS` | ECH 专用的 DoH DNS 解析地址 | 默认阿里 DNS | `customDNS=https%3A%2F%2Fdns.alidns.com%2Fdns-query` |

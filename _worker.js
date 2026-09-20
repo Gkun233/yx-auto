@@ -117,6 +117,11 @@ async function 请求优选API(urls, 默认端口 = '443', 超时时间 = 3000) 
     const results = new Set();
     await Promise.allSettled(urls.map(async (url) => {
         try {
+            if (String(url).toLowerCase().startsWith('sub://')) {
+                const subIPs = await 获取优选订阅生成器数据(url);
+                subIPs.forEach(ip => results.add(ip));
+                return;
+            }
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 超时时间);
             const response = await fetch(url, { signal: controller.signal });
@@ -212,6 +217,96 @@ async function 请求优选API(urls, 默认端口 = '443', 超时时间 = 3000) 
         } catch (e) { }
     }));
     return Array.from(results);
+}
+
+// 获取 edgetunnel 优选订阅生成器返回的优选IP列表，支持 sub://xxx#备注
+async function 获取优选订阅生成器数据(优选订阅生成器HOST) {
+    let 优选IP = [];
+    let API备注名 = null;
+    const HOST字符串 = String(优选订阅生成器HOST);
+    const hashIndex = HOST字符串.indexOf('#');
+    if (hashIndex > -1) {
+        try {
+            API备注名 = decodeURIComponent(HOST字符串.substring(hashIndex + 1).split('?')[0]);
+        } catch (e) {
+            API备注名 = HOST字符串.substring(hashIndex + 1).split('?')[0] || null;
+        }
+    }
+    let 格式化HOST = HOST字符串.replace(/^sub:\/\//i, 'https://').split('#')[0].split('?')[0];
+    if (!/^https?:\/\//i.test(格式化HOST)) 格式化HOST = `https://${格式化HOST}`;
+
+    try {
+        const url = new URL(格式化HOST);
+        格式化HOST = url.origin;
+    } catch (error) {
+        console.error('优选订阅生成器格式化异常:', error);
+        return [];
+    }
+
+    const 优选订阅生成器URL = `${格式化HOST}/sub?host=example.com&uuid=00000000-0000-4000-8000-000000000000`;
+
+    try {
+        const response = await fetch(优选订阅生成器URL, {
+            headers: { 'User-Agent': 'v2rayN/edgetunnel (https://github.com/cmliu/edgetunnel)' }
+        });
+
+        if (!response.ok) {
+            console.error(`优选订阅生成器请求异常: ${response.status} ${response.statusText}`);
+            return [];
+        }
+
+        let 返回内容 = await response.text();
+        let 明文 = '';
+        try {
+            const candidate = 返回内容.trim().replace(/\s+/g, '');
+            明文 = candidate ? atob(candidate) : '';
+        } catch (e) {
+            明文 = 返回内容;
+        }
+        if (!明文) return [];
+
+        const 订阅行列表 = 明文.includes('\r\n') ? 明文.split('\r\n') : 明文.split('\n');
+        for (const 行内容 of 订阅行列表) {
+            if (!行内容.trim()) continue;
+            if (行内容.includes('00000000-0000-4000-8000-000000000000') && 行内容.includes('example.com')) {
+                // 这是优选IP行，提取 域名/IP:端口#备注
+                const 地址匹配 = 行内容.match(/:\/\/[^@]+@([^?]+)/);
+                if (地址匹配) {
+                    let 地址端口 = 地址匹配[1], 备注 = '';
+                    const 备注匹配 = 行内容.match(/#(.+)$/);
+                    if (备注匹配) 备注 = '#' + decodeURIComponent(备注匹配[1]);
+                    const 原始地址 = 地址端口 + 备注;
+                    if (API备注名) {
+                        if (原始地址.includes('#')) {
+                            优选IP.push(`${原始地址} [${API备注名}]`);
+                        } else {
+                            优选IP.push(`${原始地址}#[${API备注名}]`);
+                        }
+                    } else {
+                        优选IP.push(原始地址);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('获取优选订阅生成器数据失败:', error);
+    }
+
+    return 优选IP;
+}
+// 将优选IP字符串（域名/IP:端口#备注）解析为节点对象列表
+function 解析优选地址列表(优选IP) {
+    const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
+    return 优选IP.map(原始地址 => {
+        const match = 原始地址.match(regex);
+        if (match) {
+            const 节点地址 = match[1].replace(/[\[\]]/g, '');
+            const 节点端口 = match[2] || 443;
+            const 节点备注 = match[3] || 节点地址;
+            return { ip: 节点地址, port: parseInt(节点端口), name: 节点备注 };
+        }
+        return null;
+    }).filter(item => item !== null);
 }
 
 // 从GitHub获取优选IP（保留原有功能，同时支持优选API）
@@ -494,7 +589,7 @@ function generateLinksFromNewIPs(list, user, workerDomain, customPath = '/', ech
 }
 
 // 生成订阅内容
-async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig = null, transport = 'ws', xhttpMode = 'auto', xhttpExtra = '') {
+async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig = null, transport = 'ws', xhttpMode = 'auto', xhttpExtra = '', esubEnabled = false, esubUrl = '') {
     const url = new URL(request.url);
     const finalLinks = [];
     const nodeDomain = customDomain || url.hostname;  // 用户输入的域名用于生成节点时的host/sni
@@ -540,7 +635,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
     if (egi) {
         try {
             // 检查是否是优选API URL（以https://开头）
-            if (piu && piu.toLowerCase().startsWith('https://')) {
+            if (piu && (piu.toLowerCase().startsWith('https://') || piu.toLowerCase().startsWith('sub://'))) {
                 // 从优选API获取IP列表
                 const 优选API的IP = await 请求优选API([piu]);
                 if (优选API的IP && 优选API的IP.length > 0) {
@@ -578,7 +673,7 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                 const 优选API = [], 优选IP = [], 其他节点 = [];
                 
                 for (const 元素 of 完整优选列表) {
-                    if (元素.toLowerCase().startsWith('https://')) {
+                    if (元素.toLowerCase().startsWith('https://') || 元素.toLowerCase().startsWith('sub://')) {
                         优选API.push(元素);
                     } else if (元素.toLowerCase().includes('://')) {
                         其他节点.push(元素);
@@ -635,6 +730,21 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
             }
         } catch (error) {
             console.error('获取优选IP失败:', error);
+        }
+    }
+
+    // Edgetunnel 优选订阅生成器
+    if (esubEnabled && esubUrl) {
+        try {
+            const 优选生成器IP数组 = await 获取优选订阅生成器数据(esubUrl);
+            if (优选生成器IP数组.length > 0) {
+                const IP列表 = 解析优选地址列表(优选生成器IP数组);
+                if (IP列表.length > 0) {
+                    await addNodesFromList(IP列表);
+                }
+            }
+        } catch (error) {
+            console.error('获取Edgetunnel优选订阅生成器失败:', error);
         }
     }
 
@@ -1235,6 +1345,39 @@ function generateHomePage(scuValue) {
             }
             
         }
+        #toast-container {
+            position: fixed;
+            top: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .toast {
+            max-width: 80vw;
+            background: rgba(17, 24, 39, 0.95);
+            color: #f1f5f9;
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-size: 14px;
+            line-height: 1.5;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.25s ease;
+            border-left: 3px solid #007aff;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .toast.success { border-left-color: #34c759; }
+        .toast.error { border-left-color: #ff3b30; }
+        .toast.info { border-left-color: #007aff; }
     </style>
 </head>
 <body>
@@ -1335,6 +1478,21 @@ function generateHomePage(scuValue) {
                 <label>GitHub优选URL（可选）</label>
                 <input type="text" id="githubUrl" placeholder="留空则使用默认地址" style="font-size: 15px;">
                 <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">自定义优选IP列表来源URL，留空则使用默认地址</small>
+            </div>
+
+            <div class="list-item" onclick="toggleSwitch('switchEdgetunnelSub')" style="margin-top: 8px;">
+                <div>
+                    <div class="list-item-label">启用 Edgetunnel 优选订阅生成器</div>
+                    <div class="list-item-description">从 edgetunnel 的 /sub 接口拉取优选节点</div>
+                </div>
+                <div class="switch" id="switchEdgetunnelSub"></div>
+            </div>
+            <div class="form-group" id="edgetunnelSubGroup" style="margin-top: 12px; display: none;">
+                <label>Edgetunnel 优选订阅生成器地址（可选）</label>
+                <input type="text" id="edgetunnelSubUrl" placeholder="例如: sub://your-worker.workers.dev 或 https://your-worker.workers.dev" style="font-size: 15px;">
+                <button type="button" class="copy-btn" onclick="fetchOnlineSubSource(this)" style="margin-top:8px;">在线获取 SUB优选源</button>
+                <select id="onlineSubSourceSelect" onchange="document.getElementById('edgetunnelSubUrl').value=this.value" style="display: none; width:100%; padding: 12px 16px; border-radius: 12px; border: 2px solid transparent; background: rgba(142,142,147,0.12); font-size: 17px; outline: none; transition: all 0.2s;"></select>
+                <small style="display: block; margin-top: 6px; color: #86868b; font-size: 13px;">留空时不拉取；支持 sub:// 或 https:// 格式；可点击上方按钮从 bestcf.pages.dev 自动获取后在下拉框中选择</small>
             </div>
             
             <div class="form-group" style="margin-top: 24px;">
@@ -1450,6 +1608,7 @@ function generateHomePage(scuValue) {
             switchDomain: true,
             switchIP: true,
             switchGitHub: true,
+            switchEdgetunnelSub: false,
             switchVL: true,
             switchTJ: false,
             switchVM: false,
@@ -1485,6 +1644,26 @@ function generateHomePage(scuValue) {
                 vmessItem.style.opacity = '1';
                 vmessItem.style.pointerEvents = 'auto';
             }
+        }
+        
+        function showToast(message, type = 'info') {
+            let container = document.getElementById('toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toast-container';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + type;
+            toast.textContent = message;
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => toast.classList.add('show'));
+            });
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 2600);
         }
         
         function toggleSwitch(id) {
@@ -1533,6 +1712,12 @@ function generateHomePage(scuValue) {
                 updateVMTroState();
             }
             
+            // Edgetunnel 优选订阅生成器逻辑
+            if (id === 'switchEdgetunnelSub') {
+                const edgetunnelGroup = document.getElementById('edgetunnelSubGroup');
+                if (edgetunnelGroup) edgetunnelGroup.style.display = switches.switchEdgetunnelSub ? 'block' : 'none';
+            }
+
             // ECH 逻辑
             if (id === 'switchECH') {
                 const echOpt = document.getElementById('echOptionsGroup');
@@ -1552,7 +1737,7 @@ function generateHomePage(scuValue) {
         function parseLink() {
             const input = document.getElementById('parseInput').value.trim();
             if (!input) {
-                alert('请粘贴节点链接');
+                showToast('请粘贴节点链接', 'info');
                 return;
             }
             let host = '', uuid = '', path = '/';
@@ -1598,7 +1783,7 @@ function generateHomePage(scuValue) {
                     // VMess 只支持 WS
                     detectedTransport = 'ws';
                 } else {
-                    alert('不支持的链接格式，仅支持 vless:// vmess:// trojan://');
+                    showToast('不支持的链接格式，仅支持 vless:// vmess:// trojan://', 'error');
                     return;
                 }
                 // 填充表单
@@ -1666,9 +1851,9 @@ function generateHomePage(scuValue) {
                     updateVMTroState();
                 }
                 
-                alert('解析成功！已自动填入信息、切换协议和传输方式。');
+                showToast('解析成功！已自动填入信息、切换协议和传输方式。', 'success');
             } catch (e) {
-                alert('解析失败：' + e.message);
+                showToast('解析失败：' + e.message, 'error');
             }
         }
         // ========== 解析结束 ==========
@@ -1721,19 +1906,55 @@ function generateHomePage(scuValue) {
             }, timeout);
         }
         
+        async function fetchOnlineSubSource(btn) {
+            const input = document.getElementById('edgetunnelSubUrl');
+            if (!input) return;
+            const oldText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = '获取中...';
+            try {
+                const resp = await fetch('/api/online-sub-source');
+                const data = await resp.json();
+                if (data && data.success && data.source) {
+                    const select = document.getElementById('onlineSubSourceSelect');
+                    if (select) {
+                        select.innerHTML = '';
+                        const options = Array.isArray(data.options) && data.options.length ? data.options : [data.source];
+                        options.forEach(opt => {
+                            const option = document.createElement('option');
+                            option.value = opt;
+                            option.textContent = opt;
+                            select.appendChild(option);
+                        });
+                        select.value = data.source;
+                        select.style.display = 'block';
+                    }
+                    input.value = data.source;
+                    showToast('已获取 SUB优选源，可在下拉框中选择：' + data.source, 'success');
+                } else {
+                    showToast('获取失败: ' + (data && data.error ? data.error : '未知错误'), 'error');
+                }
+            } catch (e) {
+                showToast('获取失败，请稍后重试', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = oldText;
+            }
+        }
+        
         function generateClientLink(clientType, clientName) {
             const domain = document.getElementById('domain').value.trim();
             const uuid = document.getElementById('uuid').value.trim();
             const customPath = document.getElementById('customPath').value.trim() || '/';
             
             if (!domain || !uuid) {
-                alert('请先填写域名和UUID/Password');
+                showToast('请先填写域名和UUID/Password', 'error');
                 return;
             }
             
             // 检查至少选择一个协议
             if (!switches.switchVL && !switches.switchTJ && !switches.switchVM) {
-                alert('请至少选择一个协议（VLESS、Trojan或VMess）');
+                showToast('请至少选择一个协议（VLESS、Trojan或VMess）', 'error');
                 return;
             }
             
@@ -1744,6 +1965,7 @@ function generateHomePage(scuValue) {
             const ispTelecom = document.getElementById('ispTelecom').checked;
             
             const githubUrl = document.getElementById('githubUrl').value.trim();
+            const edgetunnelSubUrl = document.getElementById('edgetunnelSubUrl')?.value.trim() || '';
             
             // 获取传输方式
             const transport = switches.switchXHTTP ? 'xhttp' : 'ws';
@@ -1757,6 +1979,14 @@ function generateHomePage(scuValue) {
             // 添加GitHub优选URL
             if (githubUrl) {
                 subscriptionUrl += '&piu=' + encodeURIComponent(githubUrl);
+            }
+            
+            // 添加Edgetunnel优选订阅生成器
+            if (switches.switchEdgetunnelSub) {
+                subscriptionUrl += '&esub=yes';
+                if (edgetunnelSubUrl) {
+                    subscriptionUrl += '&esubUrl=' + encodeURIComponent(edgetunnelSubUrl);
+                }
             }
             
             // 添加协议选择
@@ -1806,27 +2036,27 @@ function generateHomePage(scuValue) {
                 
                 if (clientName === 'V2RAY') {
                     navigator.clipboard.writeText(finalUrl).then(() => {
-                        alert(displayName + ' 订阅链接已复制');
+                        showToast(displayName + ' 订阅链接已复制', 'success');
                     });
                 } else if (clientName === 'Shadowrocket') {
                     schemeUrl = 'shadowrocket://add/' + encodeURIComponent(finalUrl);
                     tryOpenApp(schemeUrl, () => {
                         navigator.clipboard.writeText(finalUrl).then(() => {
-                            alert(displayName + ' 订阅链接已复制');
+                            showToast(displayName + ' 订阅链接已复制', 'success');
                         });
                     });
                 } else if (clientName === 'V2RAYNG') {
                     schemeUrl = 'v2rayng://install?url=' + encodeURIComponent(finalUrl);
                     tryOpenApp(schemeUrl, () => {
                         navigator.clipboard.writeText(finalUrl).then(() => {
-                            alert(displayName + ' 订阅链接已复制');
+                            showToast(displayName + ' 订阅链接已复制', 'success');
                         });
                     });
                 } else if (clientName === 'NEKORAY') {
                     schemeUrl = 'nekoray://install-config?url=' + encodeURIComponent(finalUrl);
                     tryOpenApp(schemeUrl, () => {
                         navigator.clipboard.writeText(finalUrl).then(() => {
-                            alert(displayName + ' 订阅链接已复制');
+                            showToast(displayName + ' 订阅链接已复制', 'success');
                         });
                     });
                 }
@@ -1863,12 +2093,12 @@ function generateHomePage(scuValue) {
                 if (schemeUrl) {
                     tryOpenApp(schemeUrl, () => {
                         navigator.clipboard.writeText(finalUrl).then(() => {
-                            alert(displayName + ' 订阅链接已复制');
+                            showToast(displayName + ' 订阅链接已复制', 'success');
                         });
                     });
                 } else {
                     navigator.clipboard.writeText(finalUrl).then(() => {
-                        alert(displayName + ' 订阅链接已复制');
+                        showToast(displayName + ' 订阅链接已复制', 'success');
                     });
                 }
             }
@@ -1876,6 +2106,33 @@ function generateHomePage(scuValue) {
     </script>
 </body>
 </html>`;
+}
+
+// 在线获取 bestcf.pages.dev 上的 SUB 优选源
+async function 在线获取SUB优选源() {
+    const 在线页面URL = 'https://bestcf.pages.dev/';
+    try {
+        const response = await fetch(在线页面URL, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36' }
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const 页面内容 = await response.text();
+        const selectMatch = 页面内容.match(/<select id="subBestSelect"[\s\S]*?<\/select>/i);
+        const 全部订阅源 = [];
+        if (selectMatch) {
+            const optionRe = /<option[^>]*value=["'](sub:\/\/[^"']+?)["'][^>]*>/gi;
+            let m;
+            while ((m = optionRe.exec(selectMatch[0]))) {
+                const value = m[1].trim();
+                if (value && !全部订阅源.includes(value)) 全部订阅源.push(value);
+            }
+        }
+        if (!全部订阅源.length) throw new Error('未在页面中找到 SUB 优选源');
+        return { source: 全部订阅源[0], options: 全部订阅源 };
+    } catch (error) {
+        console.error('在线获取SUB优选源失败:', error);
+        return null;
+    }
 }
 
 // 主处理函数
@@ -1948,6 +2205,43 @@ export default {
             }
         }
         
+        // 在线获取 SUB优选源
+        if (path === '/api/online-sub-source') {
+            if (request.method === 'OPTIONS') {
+                return new Response(null, {
+                    headers: {
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                        'Access-Control-Allow-Headers': 'Content-Type'
+                    }
+                });
+            }
+            const 在线结果 = await 在线获取SUB优选源();
+            if (在线结果) {
+                return new Response(JSON.stringify({
+                    success: true,
+                    source: 在线结果.source,
+                    options: 在线结果.options,
+                    message: '获取到 ' + 在线结果.options.length + ' 个 SUB 优选源'
+                }, null, 2), {
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8',
+                        'Access-Control-Allow-Origin': '*'
+                    }
+                });
+            }
+            return new Response(JSON.stringify({
+                success: false,
+                error: '在线获取 SUB 优选源失败'
+            }), {
+                status: 502,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        }
+        
         // 订阅请求
         const pathMatch = path.match(/^\/([^\/]+)\/sub$/);
         if (pathMatch) {
@@ -1963,6 +2257,8 @@ export default {
             epi = url.searchParams.get('epi') !== 'no';
             egi = url.searchParams.get('egi') !== 'no';
             const piu = url.searchParams.get('piu') || defaultIPURL;
+            const esubEnabled = url.searchParams.get('esub') === 'yes';
+            const esubUrl = url.searchParams.get('esubUrl') || '';
             
             // 协议选择（严格按参数判断）
             const evEnabled = url.searchParams.get('ev') === 'yes';
@@ -1995,7 +2291,7 @@ export default {
             const xhttpMode = url.searchParams.get('xhttpMode') || 'auto';
             const xhttpExtra = url.searchParams.get('xhttpExtra') || '';
 
-            return await handleSubscriptionRequest(request, uuid, domain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig, transport, xhttpMode, xhttpExtra);
+            return await handleSubscriptionRequest(request, uuid, domain, piu, ipv4Enabled, ipv6Enabled, ispMobile, ispUnicom, ispTelecom, evEnabled, etEnabled, vmEnabled, disableNonTLS, customPath, echConfig, transport, xhttpMode, xhttpExtra, esubEnabled, esubUrl);
         }
         
         return new Response('Not Found', { status: 404 });
