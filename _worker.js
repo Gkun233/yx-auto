@@ -19,17 +19,24 @@ let customECHDomain = 'cloudflare-ech.com';
 
 // 默认优选域名列表（已去除冗余的 name 字段）
 const directDomains = [
+    { domain: "saas.sin.fan" },
     { domain: "cloudflare.182682.xyz" },
     { domain: "freeyx.cloudflare88.eu.org" },
     { domain: "bestcf.top" },
     { domain: "cdn.2020111.xyz" },
     { domain: "cf.0sm.com" },
     { domain: "cf.090227.xyz" },
-    { domain: "cf.zhetengsha.eu.org" },
     { domain: "cfip.1323123.xyz" },
     { domain: "cloudflare-ip.mofashi.ltd" },
     { domain: "cf.877771.xyz" },
-    { domain: "xn--b6gac.eu.org" }
+    { domain: "xn--b6gac.eu.org" },
+    { domain: "www.leics.police.uk" },
+    { domain: "cf.877774.xyz" },
+    { domain: "deepin.org" },
+    { domain: "www.udacity.com" },
+    { domain: "cf.3666888.xyz" },
+    { domain: "ct.877774.xyz" },
+    { domain: "www.researchgate.net" }
 ];
 
 // 默认优选IP来源URL
